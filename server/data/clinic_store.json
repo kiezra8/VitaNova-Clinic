@@ -1,0 +1,63 @@
+{
+  "vitals": [
+    {
+      "id": "vit_test_01",
+      "timestamp": "2026-09-06T02:03:26.4973785+03:00",
+      "diastolicBP": 86,
+      "systolicBP": 138,
+      "patientId": "pat_sarah_001",
+      "recordedBy": "Sarah Namubiru",
+      "recordedByRole": "patient",
+      "serverSyncedAt": "2026-09-05T23:03:27.078Z",
+      "syncStatus": "synced"
+    }
+  ],
+  "medicalRecords": [],
+  "carePlans": [],
+  "homeVisits": [],
+  "transactions": [
+    {
+      "id": "MOMO_MTN_MTOZOBD7",
+      "provider": "MTN",
+      "phoneNumber": "0772458912",
+      "amountUGX": 45000,
+      "purpose": "Clinical Consultation with Dr. Ronald Mukasa",
+      "patientId": "pat_sarah_001",
+      "status": "SUCCESSFUL",
+      "ussdPromptSent": true,
+      "timestamp": "2026-09-05T23:03:27.115Z",
+      "referenceNote": "VitaNova Clinic payment of UGX 45,000 confirmed."
+    }
+  ],
+  "messages": [],
+  "emergencyDispatches": [
+    {
+      "id": "AMB_DISPATCH_MTOZOJV1",
+      "callerName": "Sarah Namubiru",
+      "callerPhone": "+256 772 458 912",
+      "locationText": "Plot 14, Ntinda-Nakawa Road, Kampala",
+      "coordinates": {
+        "lat": 0.3476,
+        "lng": 32.5825
+      },
+      "triageLevel": "Critical (Red)",
+      "allocatedUnit": "Ambulance Unit #03 (Equipped with Defibrillator & O2)",
+      "estimatedArrivalMinutes": 12,
+      "dispatchedAt": "2026-09-05T23:03:38.125Z",
+      "status": "En Route"
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "audit_1788649407075_14gr",
+      "outboxId": "test_outbox_01",
+      "entity": "vitals",
+      "action": "create",
+      "userId": "pat_sarah_001",
+      "deviceId": "test_dev_01",
+      "clientTimestamp": "2026-09-06T02:03:26.4973785+03:00",
+      "serverReceivedAt": "2026-09-05T23:03:27.078Z"
+    }
+  ],
+  "lastUpdated": "2026-09-05T23:03:38.125Z"
+}

@@ -1,0 +1,45 @@
+{
+  "short_name": "VitaNova",
+  "name": "VitaNova Clinic - Healthcare That Stays With You",
+  "description": "Offline-first Progressive Web App for healthcare in Uganda. Manage medical records, record vitals, access home care, and consult clinicians online or offline.",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0F172A",
+  "theme_color": "#0D9488",
+  "display": "standalone",
+  "orientation": "portrait",
+  "categories": ["medical", "health", "lifestyle"],
+  "shortcuts": [
+    {
+      "name": "Record Vitals",
+      "short_name": "Vitals",
+      "description": "Quickly record blood pressure, glucose or heart rate offline",
+      "url": "/#vitals"
+    },
+    {
+      "name": "Emergency",
+      "short_name": "Emergency",
+      "description": "Emergency numbers & ambulance dispatch",
+      "url": "/#emergency"
+    },
+    {
+      "name": "Home Care",
+      "short_name": "Home Care",
+      "description": "Access home nursing & midwife visits",
+      "url": "/#homecare"
+    }
+  ]
+}
