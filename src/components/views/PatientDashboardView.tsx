@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Heart,
   Activity,
@@ -18,10 +18,10 @@ import {
   Video,
   Phone,
   ArrowRight,
-  Smile,
-  AlertCircle,
+  ChevronLeft,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Stethoscope
 } from 'lucide-react';
 import { PatientProfile, VitalRecord, CarePlan, HomeCareRequest, HealthcareWorker } from '../../types';
 import { NavTab } from '../layout/Navigation';
@@ -55,76 +55,120 @@ export const PatientDashboardView: React.FC<PatientDashboardProps> = ({
   lastSyncedTime,
   pendingCount
 }) => {
-  const latestVital = latestVitals[0];
   const [moodGreeting, setMoodGreeting] = useState<string | null>(null);
 
-  // Friendly everyday service cards with relatable imagery
-  const friendlyServices = [
+  // 5 Services Carousel Slides
+  const carouselSlides = [
     {
-      id: 'consultation',
-      title: 'Talk to a Doctor or Nurse',
-      desc: 'Video call, phone call or message verified clinicians right from home.',
-      tag: 'Doctors on call',
-      tagColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-      image: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80',
-      actionText: 'Connect Now',
+      id: 'telehealth',
+      badge: '24/7 Virtual Clinic',
+      title: 'Talk Directly with Doctors & Midwives',
+      description: 'Start instant video calls, phone calls, or private in-app chats with certified Ugandan physicians from Kampala and Wakiso.',
+      image: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=1200&q=80',
+      actionText: 'Start Video Consultation',
       tab: 'consultation' as NavTab
     },
     {
       id: 'homecare',
-      title: 'Nurse Visits to Your Home',
-      desc: 'Have a kind, certified nurse come to your home for dressing wounds, checks, and elderly support.',
-      tag: 'Kampala & Wakiso',
-      tagColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
-      image: 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=600&q=80',
-      actionText: 'Book Nurse',
+      badge: 'Doorstep Care in Kampala & Wakiso',
+      title: 'Compassionate Nurse Visits to Your Home',
+      description: 'Have a kind, certified community nurse come to your home for wound care, injections, post-operative support, and elderly checks.',
+      image: 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=1200&q=80',
+      actionText: 'Book Home Nurse',
       tab: 'homecare' as NavTab
     },
     {
       id: 'education',
-      title: 'Health Video Talks',
-      desc: 'Short video talks by Ugandan doctors explaining blood pressure, malaria, diabetes, and pregnancy.',
-      tag: 'Free Doctor Talks',
-      tagColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-      image: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=600&q=80',
-      actionText: 'Watch Videos',
+      badge: 'Doctor-Led Video Talks',
+      title: 'Learn Disease Causes, Diet & Hospital Cures',
+      description: 'Watch video talks by local doctors explaining high blood pressure, diabetes, malaria, and maternal health in simple local terms.',
+      image: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=1200&q=80',
+      actionText: 'Watch Video Talks',
       tab: 'education' as NavTab
     },
     {
-      id: 'vitals',
-      title: 'Check Your Health Numbers',
-      desc: 'Keep track of your blood pressure, sugar, and heart rate anytime without internet.',
-      tag: 'Works Offline',
-      tagColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
-      image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=600&q=80',
-      actionText: 'See Numbers',
-      tab: 'vitals' as NavTab
-    },
-    {
-      id: 'records',
-      title: 'My Medical Records',
-      desc: 'Safe, private timeline of all your doctor visits, lab results, and prescriptions.',
-      tag: 'Confidential',
-      tagColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-      image: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=600&q=80',
-      actionText: 'View Files',
-      tab: 'records' as NavTab
+      id: 'watch',
+      badge: 'Smart BLE Telemetry',
+      title: 'CareWatch Pro 24/7 Health Monitoring',
+      description: 'Continuous wrist telemetry for heart rate, SpO2, and fall detection with automatic offline sync to your clinician.',
+      image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=1200&q=80',
+      actionText: 'Open CareWatch',
+      tab: 'watch' as NavTab
     },
     {
       id: 'family',
-      title: 'Family Health Circle',
-      desc: 'Keep health records and book appointments for your children and parents.',
-      tag: 'Family Care',
-      tagColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-      image: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=600&q=80',
-      actionText: 'Family Members',
+      badge: 'Whole Family Protection',
+      title: 'VitaNova Family Health Circle',
+      description: 'Safeguard your children and parents with shared health profiles, immunization schedules, and pooled doctor visits.',
+      image: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=1200&q=80',
+      actionText: 'Family Health Circle',
       tab: 'family' as NavTab
+    }
+  ];
+
+  const [currentSlide, setCurrentSlide] = useState<number>(0);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+
+  // Auto-advance carousel every 5.5 seconds
+  useEffect(() => {
+    if (isPaused) return;
+    const interval = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % carouselSlides.length);
+    }, 5500);
+    return () => clearInterval(interval);
+  }, [isPaused, carouselSlides.length]);
+
+  const handlePrevSlide = () => {
+    setCurrentSlide((prev) => (prev === 0 ? carouselSlides.length - 1 : prev - 1));
+  };
+
+  const handleNextSlide = () => {
+    setCurrentSlide((prev) => (prev + 1) % carouselSlides.length);
+  };
+
+  // 2 by 2 Square Cards with Very Curved Edges & Background Images
+  const squareServices = [
+    {
+      id: 'consultation',
+      title: 'Doctor & Midwife Care',
+      subtitle: 'Video, phone calls & inboxes',
+      tag: 'Doctors on Call',
+      icon: Stethoscope,
+      image: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80',
+      tab: 'consultation' as NavTab
+    },
+    {
+      id: 'homecare',
+      title: 'Home Nurse Visits',
+      subtitle: 'Bedside wound care & checks',
+      tag: 'Doorstep Care',
+      icon: UserCheck,
+      image: 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=600&q=80',
+      tab: 'homecare' as NavTab
+    },
+    {
+      id: 'education',
+      title: 'Disease Video Talks',
+      subtitle: 'Causes, diet & hospital cures',
+      tag: 'Doctor Talks',
+      icon: BookOpen,
+      image: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=600&q=80',
+      tab: 'education' as NavTab
+    },
+    {
+      id: 'watch',
+      title: 'CareWatch & Telemetry',
+      subtitle: 'Live wrist vitals & fall alert',
+      tag: 'Smart Bluetooth',
+      icon: Watch,
+      image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=600&q=80',
+      tab: 'watch' as NavTab
     }
   ];
 
   return (
     <div className="space-y-6 sm:space-y-8 pb-20 max-w-full overflow-hidden">
-      {/* Warm & Welcoming Human Greeting Banner */}
+      {/* 1. Warm & Welcoming Human Greeting Banner */}
       <div className="relative overflow-hidden bg-gradient-to-br from-teal-900/60 via-slate-900 to-slate-900 rounded-3xl border border-teal-500/20 p-5 sm:p-7 shadow-lg">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
@@ -147,7 +191,7 @@ export const PatientDashboardView: React.FC<PatientDashboardProps> = ({
             </div>
           </div>
 
-          {/* Quick Record Button */}
+          {/* Quick Record & Emergency Buttons */}
           <div className="flex items-center space-x-2 pt-1 sm:pt-0">
             <button
               onClick={onOpenAddVitals}
@@ -196,79 +240,159 @@ export const PatientDashboardView: React.FC<PatientDashboardProps> = ({
         )}
       </div>
 
-      {/* Gentle, Relatable Health Status Card */}
-      <div className="bg-slate-900 rounded-3xl border border-slate-800 p-5 sm:p-6 space-y-4 shadow-md">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-              <CheckCircle2 className="w-4 h-4" />
+      {/* 2. 5 SERVICES CAROUSEL */}
+      <div
+        className="relative rounded-3xl overflow-hidden border border-slate-800 bg-slate-900 shadow-xl group"
+        onMouseEnter={() => setIsPaused(true)}
+        onMouseLeave={() => setIsPaused(false)}
+      >
+        {/* Slides Track */}
+        <div className="relative h-64 sm:h-72 md:h-80 w-full overflow-hidden">
+          {carouselSlides.map((slide, index) => (
+            <div
+              key={slide.id}
+              className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
+                index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
+              }`}
+            >
+              {/* Background Image */}
+              <img
+                src={slide.image}
+                alt={slide.title}
+                className="w-full h-full object-cover"
+              />
+              {/* Rich Multi-stop Gradient Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/75 to-slate-950/30" />
+              <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/60 to-transparent" />
+
+              {/* Slide Content */}
+              <div className="absolute inset-0 p-5 sm:p-8 flex flex-col justify-end space-y-2.5 max-w-2xl">
+                <span className="inline-block px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-teal-500/25 text-teal-300 border border-teal-500/40 backdrop-blur-md self-start">
+                  {slide.badge}
+                </span>
+
+                <h2 className="text-lg sm:text-2xl md:text-3xl font-extrabold text-white leading-tight break-words">
+                  {slide.title}
+                </h2>
+
+                <p className="text-xs sm:text-sm text-slate-300 line-clamp-2 leading-relaxed break-words max-w-xl">
+                  {slide.description}
+                </p>
+
+                <div className="pt-2">
+                  <button
+                    onClick={() => onNavigate(slide.tab)}
+                    className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-teal-500/30 flex items-center space-x-2 transition-all active:scale-95"
+                  >
+                    <span>{slide.actionText}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             </div>
-            <div>
-              <h2 className="text-sm sm:text-base font-bold text-white">Your Health Overview</h2>
-              <p className="text-[11px] text-slate-400">All numbers are looking steady and well controlled</p>
-            </div>
-          </div>
-          <button
-            onClick={() => onNavigate('vitals')}
-            className="text-xs font-semibold text-teal-400 hover:text-teal-300 flex items-center space-x-1"
-          >
-            <span>Details & History</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+          ))}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* Blood Pressure */}
-          <div
-            onClick={() => onNavigate('vitals')}
-            className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-teal-500/40 cursor-pointer transition-colors"
-          >
-            <span className="text-[11px] text-slate-400 font-medium">Blood Pressure</span>
-            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
-              {latestVital?.systolicBP ? `${latestVital.systolicBP}/${latestVital.diastolicBP}` : '128/82'}
-            </p>
-            <span className="text-[10px] font-bold text-emerald-400">✓ Healthy Target</span>
-          </div>
+        {/* Carousel Navigation Arrows */}
+        <button
+          onClick={handlePrevSlide}
+          aria-label="Previous service slide"
+          className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-slate-950/70 hover:bg-slate-900 text-white border border-slate-700/80 flex items-center justify-center backdrop-blur-md opacity-80 hover:opacity-100 transition-all shadow-md"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
 
-          {/* Blood Sugar */}
-          <div
-            onClick={() => onNavigate('vitals')}
-            className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-teal-500/40 cursor-pointer transition-colors"
-          >
-            <span className="text-[11px] text-slate-400 font-medium">Blood Sugar</span>
-            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
-              {latestVital?.bloodGlucose ? `${latestVital.bloodGlucose}` : '5.2'} <span className="text-xs text-slate-400">mmol/L</span>
-            </p>
-            <span className="text-[10px] font-bold text-emerald-400">✓ Normal Fasting</span>
-          </div>
+        <button
+          onClick={handleNextSlide}
+          aria-label="Next service slide"
+          className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-slate-950/70 hover:bg-slate-900 text-white border border-slate-700/80 flex items-center justify-center backdrop-blur-md opacity-80 hover:opacity-100 transition-all shadow-md"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </button>
 
-          {/* Heart Rate */}
-          <div
-            onClick={() => onNavigate('vitals')}
-            className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-teal-500/40 cursor-pointer transition-colors"
-          >
-            <span className="text-[11px] text-slate-400 font-medium">Resting Heart Rate</span>
-            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
-              {latestVital?.heartRate ? latestVital.heartRate : '70'} <span className="text-xs text-slate-400">bpm</span>
-            </p>
-            <span className="text-[10px] font-bold text-teal-400">✓ Steady Pulse</span>
-          </div>
-
-          {/* Blood Oxygen */}
-          <div
-            onClick={() => onNavigate('vitals')}
-            className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-teal-500/40 cursor-pointer transition-colors"
-          >
-            <span className="text-[11px] text-slate-400 font-medium">Oxygen Level</span>
-            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
-              {latestVital?.spO2 ? latestVital.spO2 : '99'}%
-            </p>
-            <span className="text-[10px] font-bold text-emerald-400">✓ Optimal</span>
-          </div>
+        {/* Carousel Indicator Dots (5 slides) */}
+        <div className="absolute bottom-3 right-4 z-20 flex items-center space-x-1.5 bg-slate-950/60 px-3 py-1.5 rounded-full backdrop-blur-md border border-slate-800">
+          {carouselSlides.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrentSlide(i)}
+              aria-label={`Go to slide ${i + 1}`}
+              className={`transition-all duration-300 rounded-full ${
+                currentSlide === i
+                  ? 'w-6 h-2 bg-teal-400'
+                  : 'w-2 h-2 bg-slate-600 hover:bg-slate-400'
+              }`}
+            />
+          ))}
         </div>
       </div>
 
-      {/* Direct Clinician Contact Strip: Video Call, Audio Call, Direct Inbox */}
+      {/* 3. DIFFERENT CATEGORIES / SERVICES IN A 2 BY 2 FORMAT WITH SQUARE CARDS & VERY CURVED EDGES */}
+      <div className="space-y-3.5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+              Clinical Services & Specialties
+            </h2>
+            <p className="text-xs text-slate-400">
+              Tap any category below to access specialized healthcare care
+            </p>
+          </div>
+          <span className="text-[11px] font-bold text-teal-400 bg-teal-500/10 px-2.5 py-1 rounded-full border border-teal-500/20">
+            4 Core Services
+          </span>
+        </div>
+
+        {/* 2 by 2 Square Cards Grid */}
+        <div className="grid grid-cols-2 gap-3.5 sm:gap-5">
+          {squareServices.map((svc) => {
+            const IconComp = svc.icon;
+            return (
+              <div
+                key={svc.id}
+                onClick={() => onNavigate(svc.tab)}
+                className="group relative aspect-square rounded-[28px] sm:rounded-[34px] overflow-hidden border border-slate-800 hover:border-teal-500/60 shadow-lg hover:shadow-teal-500/10 cursor-pointer transition-all duration-300 flex flex-col justify-between p-3.5 sm:p-5"
+              >
+                {/* Background Image */}
+                <img
+                  src={svc.image}
+                  alt={svc.title}
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                />
+
+                {/* Gradient Overlays for High Contrast & Legibility */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/70 to-slate-950/30 group-hover:via-slate-950/60 transition-colors" />
+
+                {/* Top Strip: Glowing Glass Icon & Mini Tag */}
+                <div className="relative z-10 flex items-center justify-between">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-teal-500/20 backdrop-blur-md border border-teal-500/40 text-teal-300 flex items-center justify-center shadow-md group-hover:bg-teal-500 group-hover:text-slate-950 transition-colors">
+                    <IconComp className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </div>
+                  <span className="text-[9px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-950/80 backdrop-blur-md text-teal-300 border border-teal-500/30">
+                    {svc.tag}
+                  </span>
+                </div>
+
+                {/* Bottom Content: Title, Subtitle & Arrow */}
+                <div className="relative z-10 space-y-1">
+                  <h3 className="text-sm sm:text-base md:text-lg font-extrabold text-white group-hover:text-teal-300 transition-colors leading-snug break-words">
+                    {svc.title}
+                  </h3>
+                  <p className="text-[10px] sm:text-xs text-slate-300 line-clamp-1 break-words">
+                    {svc.subtitle}
+                  </p>
+                  <div className="flex items-center text-[10px] sm:text-xs font-bold text-teal-400 pt-1 space-x-1 group-hover:translate-x-1 transition-transform">
+                    <span>Open Service</span>
+                    <ArrowRight className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 4. Direct Clinician Contact Strip: Video Call, Audio Call, Direct Inbox */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
@@ -276,7 +400,7 @@ export const PatientDashboardView: React.FC<PatientDashboardProps> = ({
               Connect Directly with Your Clinicians
             </h2>
             <p className="text-xs text-slate-400">
-              Tap below to video call, phone call, or message your doctor right now
+              Video call, phone call, or message your doctor right now
             </p>
           </div>
           <button
@@ -344,58 +468,7 @@ export const PatientDashboardView: React.FC<PatientDashboardProps> = ({
         </div>
       </div>
 
-      {/* Relatable Core Service Cards with Rich Visuals */}
-      <div className="space-y-3">
-        <div>
-          <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-            Explore Healthcare Services
-          </h2>
-          <p className="text-xs text-slate-400">
-            Simple, transparent healthcare services designed for Ugandan families
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-          {friendlyServices.map((svc) => (
-            <div
-              key={svc.id}
-              onClick={() => onNavigate(svc.tab)}
-              className="group bg-slate-900 rounded-3xl border border-slate-800 overflow-hidden hover:border-teal-500/50 hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="relative h-44 sm:h-48 w-full overflow-hidden bg-slate-950">
-                  <img
-                    src={svc.image}
-                    alt={svc.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent" />
-                  <span className={`absolute top-3 left-3 text-[10px] font-bold px-2.5 py-1 rounded-full border backdrop-blur-md ${svc.tagColor}`}>
-                    {svc.tag}
-                  </span>
-                </div>
-
-                <div className="p-4 sm:p-5 space-y-1.5">
-                  <h3 className="text-base font-bold text-white group-hover:text-teal-300 transition-colors">
-                    {svc.title}
-                  </h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {svc.desc}
-                  </p>
-                </div>
-              </div>
-
-              <div className="px-4 sm:px-5 pb-4 pt-1 flex items-center justify-between text-xs font-bold text-teal-400">
-                <span>{svc.actionText}</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Upcoming Home Nurse Visit & Active Care Plan */}
+      {/* 5. Upcoming Home Nurse Visit & Active Care Plan */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Next Assigned Home Visit */}
         <div className="bg-slate-900 rounded-3xl border border-slate-800 p-5 space-y-3.5">
@@ -486,3 +559,5 @@ export const PatientDashboardView: React.FC<PatientDashboardProps> = ({
     </div>
   );
 };
+
+export default PatientDashboardView;

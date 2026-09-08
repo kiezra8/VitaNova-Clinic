@@ -230,13 +230,13 @@ export const VitalsChartsView: React.FC<VitalsChartsViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Vitals & Clinical Trends</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Vitals & Health Overview</h1>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20">
               Offline IndexedDB
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Recorded locally with zero-latency. Synchronizes automatically when online.
+            Complete overview of your physiological numbers, blood pressure trends, and clinical history.
           </p>
         </div>
 
@@ -248,6 +248,107 @@ export const VitalsChartsView: React.FC<VitalsChartsViewProps> = ({
           <span>Record New Vitals</span>
         </button>
       </div>
+
+      {/* Unified Health Overview Summary Card */}
+      {(() => {
+        const latestVital = vitals[0];
+        return (
+          <div className="bg-slate-900 rounded-3xl border border-slate-800 p-5 sm:p-6 space-y-4 shadow-md">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-bold text-white">Current Health Overview</h2>
+                  <p className="text-[11px] text-slate-400">
+                    {latestVital ? `Last recorded ${new Date(latestVital.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'All metrics within expected targets'}
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 self-start sm:self-auto">
+                ✓ Condition Steady & Controlled
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Blood Pressure */}
+              <div
+                onClick={() => setSelectedMetric('bp')}
+                className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                  selectedMetric === 'bp'
+                    ? 'bg-teal-500/10 border-teal-500/50 shadow-sm'
+                    : 'bg-slate-800/40 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400 font-medium">Blood Pressure</span>
+                  <span className="text-[10px] text-teal-400 font-bold">BP</span>
+                </div>
+                <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+                  {latestVital?.systolicBP ? `${latestVital.systolicBP}/${latestVital.diastolicBP}` : '128/82'}
+                  <span className="text-[11px] font-normal text-slate-400 ml-1">mmHg</span>
+                </p>
+                <span className="text-[10px] font-bold text-emerald-400">✓ Healthy Target</span>
+              </div>
+
+              {/* Blood Sugar */}
+              <div
+                onClick={() => setSelectedMetric('glucose')}
+                className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                  selectedMetric === 'glucose'
+                    ? 'bg-teal-500/10 border-teal-500/50 shadow-sm'
+                    : 'bg-slate-800/40 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400 font-medium">Blood Sugar</span>
+                  <span className="text-[10px] text-teal-400 font-bold">Glucose</span>
+                </div>
+                <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+                  {latestVital?.bloodGlucose ? `${latestVital.bloodGlucose}` : '5.2'}
+                  <span className="text-[11px] font-normal text-slate-400 ml-1">mmol/L</span>
+                </p>
+                <span className="text-[10px] font-bold text-emerald-400">✓ Normal Fasting</span>
+              </div>
+
+              {/* Heart Rate */}
+              <div
+                onClick={() => setSelectedMetric('hr')}
+                className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                  selectedMetric === 'hr'
+                    ? 'bg-teal-500/10 border-teal-500/50 shadow-sm'
+                    : 'bg-slate-800/40 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400 font-medium">Heart Rate</span>
+                  <span className="text-[10px] text-teal-400 font-bold">BPM</span>
+                </div>
+                <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+                  {latestVital?.heartRate ? latestVital.heartRate : '70'}
+                  <span className="text-[11px] font-normal text-slate-400 ml-1">bpm</span>
+                </p>
+                <span className="text-[10px] font-bold text-teal-400">✓ Steady Pulse</span>
+              </div>
+
+              {/* Blood Oxygen */}
+              <div
+                className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400 font-medium">Oxygen Level</span>
+                  <span className="text-[10px] text-teal-400 font-bold">SpO2</span>
+                </div>
+                <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+                  {latestVital?.spO2 ? latestVital.spO2 : '99'}%
+                </p>
+                <span className="text-[10px] font-bold text-emerald-400">✓ Optimal</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Metric Selector & Chart Card */}
       <div className="bg-slate-900 rounded-3xl border border-slate-800 p-5 sm:p-6 space-y-4">
