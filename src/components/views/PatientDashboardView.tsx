@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Heart,
   Activity,
@@ -14,19 +14,16 @@ import {
   BookOpen,
   Users,
   MessageSquare,
-  AlertCircle,
   CheckCircle2,
-  RefreshCw,
+  Video,
+  Phone,
+  ArrowRight,
+  Smile,
+  AlertCircle,
   ChevronRight,
-  Pill,
-  CreditCard,
-  Wifi,
-  WifiOff,
-  Stethoscope,
-  Building2,
-  ArrowRight
+  Sparkles
 } from 'lucide-react';
-import { PatientProfile, VitalRecord, CarePlan, HomeCareRequest } from '../../types';
+import { PatientProfile, VitalRecord, CarePlan, HomeCareRequest, HealthcareWorker } from '../../types';
 import { NavTab } from '../layout/Navigation';
 
 interface PatientDashboardProps {
@@ -34,8 +31,11 @@ interface PatientDashboardProps {
   latestVitals: VitalRecord[];
   activeCarePlan?: CarePlan;
   upcomingHomeVisits: HomeCareRequest[];
+  clinicians: HealthcareWorker[];
   onNavigate: (tab: NavTab) => void;
   onOpenAddVitals: () => void;
+  onStartCall: (clinician: HealthcareWorker, type: 'video' | 'audio') => void;
+  onOpenDirectChat: (clinician: HealthcareWorker) => void;
   networkState: string;
   lastSyncedTime: string | null;
   pendingCount: number;
@@ -46,478 +46,441 @@ export const PatientDashboardView: React.FC<PatientDashboardProps> = ({
   latestVitals,
   activeCarePlan,
   upcomingHomeVisits,
+  clinicians,
   onNavigate,
   onOpenAddVitals,
+  onStartCall,
+  onOpenDirectChat,
   networkState,
   lastSyncedTime,
   pendingCount
 }) => {
   const latestVital = latestVitals[0];
+  const [moodGreeting, setMoodGreeting] = useState<string | null>(null);
 
-  // 12 Core Healthcare Modules with rich professional images
-  const healthcareModules = [
+  // Friendly everyday service cards with relatable imagery
+  const friendlyServices = [
     {
       id: 'consultation',
-      title: 'Talk to a Health Worker',
-      subtitle: 'Consult Doctors, Nurses, Midwives & Physios',
-      badge: '4 Clinicians Online',
-      badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+      title: 'Talk to a Doctor or Nurse',
+      desc: 'Video call, phone call or message verified clinicians right from home.',
+      tag: 'Doctors on call',
+      tagColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
       image: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80',
-      icon: UserCheck,
+      actionText: 'Connect Now',
       tab: 'consultation' as NavTab
     },
     {
       id: 'homecare',
-      title: 'Home Care Visits',
-      subtitle: 'Bedside Nursing, Midwifery & Wound Care',
-      badge: 'Assigned to Nakawa',
-      badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
+      title: 'Nurse Visits to Your Home',
+      desc: 'Have a kind, certified nurse come to your home for dressing wounds, checks, and elderly support.',
+      tag: 'Kampala & Wakiso',
+      tagColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
       image: 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=600&q=80',
-      icon: HeartPulse,
+      actionText: 'Book Nurse',
       tab: 'homecare' as NavTab
     },
     {
-      id: 'records',
-      title: 'Medical Records (EMR)',
-      subtitle: 'Immutable History, Lab Reports & Diagnoses',
-      badge: '100% Offline Cached',
-      badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-      image: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=600&q=80',
-      icon: FileText,
-      tab: 'records' as NavTab
+      id: 'education',
+      title: 'Health Video Talks',
+      desc: 'Short video talks by Ugandan doctors explaining blood pressure, malaria, diabetes, and pregnancy.',
+      tag: 'Free Doctor Talks',
+      tagColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+      image: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=600&q=80',
+      actionText: 'Watch Videos',
+      tab: 'education' as NavTab
     },
     {
       id: 'vitals',
-      title: 'Vitals & Monitoring',
-      subtitle: 'BP, Blood Glucose, Heart Rate & SpO2',
-      badge: 'Interactive Charts',
-      badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
+      title: 'Check Your Health Numbers',
+      desc: 'Keep track of your blood pressure, sugar, and heart rate anytime without internet.',
+      tag: 'Works Offline',
+      tagColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
       image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=600&q=80',
-      icon: Activity,
+      actionText: 'See Numbers',
       tab: 'vitals' as NavTab
     },
     {
-      id: 'watch',
-      title: 'Smart Health Watch',
-      subtitle: 'VitaNova CareWatch Pro BLE Telemetry',
-      badge: 'Connected • 84% Bat',
-      badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-      image: 'https://images.unsplash.com/photo-1508685096489-7aacd43bd3b1?auto=format&fit=crop&w=600&q=80',
-      icon: Watch,
-      tab: 'watch' as NavTab
-    },
-    {
-      id: 'chronic',
-      title: 'Chronic Care Plan',
-      subtitle: 'Hypertension, Diabetes & Asthma Protocols',
-      badge: '96% Adherence',
-      badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-      image: 'https://images.unsplash.com/photo-1471864190281-a93a3070b6de?auto=format&fit=crop&w=600&q=80',
-      icon: Shield,
-      tab: 'chronic' as NavTab
-    },
-    {
-      id: 'appointments',
-      title: 'Appointments & Clinic',
-      subtitle: 'Nakawa Medical Centre Physical Outpatient',
-      badge: 'Plot 14 Ntinda Road',
-      badgeColor: 'bg-slate-700/80 text-slate-200 border-slate-600',
-      image: 'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=600&q=80',
-      icon: Building2,
-      tab: 'landing' as NavTab
-    },
-    {
-      id: 'education',
-      title: 'Health Education Library',
-      subtitle: 'Maternal, Child & Chronic Care Guides',
-      badge: '3 Guides Offline',
-      badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-      image: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=600&q=80',
-      icon: BookOpen,
-      tab: 'education' as NavTab
+      id: 'records',
+      title: 'My Medical Records',
+      desc: 'Safe, private timeline of all your doctor visits, lab results, and prescriptions.',
+      tag: 'Confidential',
+      tagColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+      image: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=600&q=80',
+      actionText: 'View Files',
+      tab: 'records' as NavTab
     },
     {
       id: 'family',
       title: 'Family Health Circle',
-      subtitle: 'Dependents, Mother & Children Profiles',
-      badge: '2 Members Synced',
-      badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
+      desc: 'Keep health records and book appointments for your children and parents.',
+      tag: 'Family Care',
+      tagColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
       image: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=600&q=80',
-      icon: Users,
+      actionText: 'Family Members',
       tab: 'family' as NavTab
-    },
-    {
-      id: 'whatsapp',
-      title: 'WhatsApp & SMS Alerts',
-      subtitle: 'Automated Reminders & Adherence Queue',
-      badge: 'Privacy Protected',
-      badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-      image: 'https://images.unsplash.com/photo-1577563908411-5077b6dc7624?auto=format&fit=crop&w=600&q=80',
-      icon: MessageSquare,
-      tab: 'whatsapp' as NavTab
-    },
-    {
-      id: 'membership',
-      title: 'My Health Plan',
-      subtitle: 'Prepaid Family Healthcare Membership',
-      badge: '3/5 Consults Used',
-      badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
-      image: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80',
-      icon: CreditCard,
-      tab: 'membership' as NavTab
-    },
-    {
-      id: 'emergency',
-      title: 'Emergency 24/7',
-      subtitle: 'Ambulance Dispatch & Direct 999 Dialer',
-      badge: 'ICU Unit #03 Ready',
-      badgeColor: 'bg-red-500/20 text-red-300 border-red-500/40',
-      image: 'https://images.unsplash.com/photo-1587745416684-47953f16f02f?auto=format&fit=crop&w=600&q=80',
-      icon: PhoneCall,
-      tab: 'emergency' as NavTab
     }
   ];
 
   return (
-    <div className="space-y-8 pb-20">
-      {/* Patient Health Overview Hero Banner */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-teal-950/70 via-slate-900 to-slate-900 rounded-3xl border border-teal-500/30 p-5 sm:p-7 shadow-xl">
-        <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 relative z-10">
-          <div className="flex items-center space-x-4 sm:space-x-5">
-            <div className="relative">
-              <img
-                src={patient.profileImage}
-                alt={patient.fullName}
-                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-teal-400/60 shadow-lg shadow-teal-500/20"
-              />
-              <span className="absolute -bottom-1.5 -right-1.5 bg-emerald-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full border border-slate-900">
-                {patient.bloodGroup}
+    <div className="space-y-6 sm:space-y-8 pb-20 max-w-full overflow-hidden">
+      {/* Warm & Welcoming Human Greeting Banner */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-teal-900/60 via-slate-900 to-slate-900 rounded-3xl border border-teal-500/20 p-5 sm:p-7 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center space-x-4">
+            <img
+              src={patient.profileImage}
+              alt={patient.fullName}
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-teal-400 shadow-md shrink-0"
+            />
+            <div className="space-y-0.5">
+              <span className="text-xs font-semibold text-teal-300 flex items-center space-x-1">
+                <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                <span>Good morning</span>
               </span>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-                  {patient.fullName}
-                </h1>
-                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                  Kampala Patient ID: #pat_001
-                </span>
-              </div>
-              <p className="text-xs sm:text-sm text-slate-300">
-                {patient.location} • Age 34 • Family Membership Active
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                {patient.fullName.split(' ')[0]} 👋
+              </h1>
+              <p className="text-xs text-slate-300">
+                {patient.location} • How can we help you stay healthy today?
               </p>
-              <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
-                <span className="flex items-center space-x-1">
-                  {networkState === 'offline' ? (
-                    <>
-                      <WifiOff className="w-3.5 h-3.5 text-amber-400" />
-                      <span className="text-amber-300 font-semibold">Offline (Local IndexedDB Cache)</span>
-                    </>
-                  ) : (
-                    <>
-                      <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-emerald-300 font-semibold">Online (VitaNova Cloud Synced)</span>
-                    </>
-                  )}
-                </span>
-                <span>•</span>
-                <span>
-                  Last synced:{' '}
-                  <strong className="text-slate-200">
-                    {lastSyncedTime ? new Date(lastSyncedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Local Ready'}
-                  </strong>
-                </span>
-                {pendingCount > 0 && (
-                  <span className="bg-amber-400/20 text-amber-300 font-bold px-2 py-0.5 rounded-full">
-                    {pendingCount} outbox queued
-                  </span>
-                )}
-              </div>
             </div>
           </div>
 
-          {/* Quick Action CTA Buttons */}
-          <div className="flex flex-wrap items-center gap-2.5 pt-2 lg:pt-0">
+          {/* Quick Record Button */}
+          <div className="flex items-center space-x-2 pt-1 sm:pt-0">
             <button
               onClick={onOpenAddVitals}
-              className="flex-1 sm:flex-initial px-5 py-3 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-teal-500/20 transition-transform active:scale-95 flex items-center justify-center space-x-2"
+              className="px-4 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs shadow-md shadow-teal-500/20 transition-all active:scale-95 flex items-center space-x-2"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>Record Vitals Offline</span>
+              <span>Record Vitals</span>
             </button>
             <button
               onClick={() => onNavigate('emergency')}
-              className="px-4 py-3 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/40 font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors"
+              className="px-3.5 py-2.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 font-bold text-xs flex items-center space-x-1.5 transition-colors"
             >
-              <PhoneCall className="w-4 h-4 text-red-400" />
-              <span>Emergency 999</span>
+              <PhoneCall className="w-3.5 h-3.5 text-red-400" />
+              <span>Emergency</span>
             </button>
           </div>
         </div>
+
+        {/* Friendly Feeling Check-in Bar */}
+        <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-slate-400 font-medium">Quick check:</span>
+          <button
+            onClick={() => setMoodGreeting("Great to hear you're feeling healthy! Keep drinking plenty of water today.")}
+            className="px-2.5 py-1 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] transition-colors"
+          >
+            😊 Feeling Great
+          </button>
+          <button
+            onClick={() => setMoodGreeting("Take it easy today. Your care team is always here if you need help.")}
+            className="px-2.5 py-1 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] transition-colors"
+          >
+            😴 Tired / Rest Needed
+          </button>
+          <button
+            onClick={() => onNavigate('consultation')}
+            className="px-2.5 py-1 rounded-full bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-[11px] font-semibold border border-teal-500/30 transition-colors"
+          >
+            💬 Talk to Clinician
+          </button>
+        </div>
+
+        {moodGreeting && (
+          <div className="mt-2 text-xs text-teal-300 bg-teal-500/10 p-2.5 rounded-xl border border-teal-500/20 animate-fadeIn">
+            {moodGreeting}
+          </div>
+        )}
       </div>
 
-      {/* Primary Vitals Telemetry Quick Strip */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
-            <Activity className="w-4 h-4 text-teal-400" />
-            <span>Real-Time Health Vitals Telemetry</span>
-          </h2>
+      {/* Gentle, Relatable Health Status Card */}
+      <div className="bg-slate-900 rounded-3xl border border-slate-800 p-5 sm:p-6 space-y-4 shadow-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+          <div className="flex items-center space-x-2">
+            <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-base font-bold text-white">Your Health Overview</h2>
+              <p className="text-[11px] text-slate-400">All numbers are looking steady and well controlled</p>
+            </div>
+          </div>
           <button
             onClick={() => onNavigate('vitals')}
             className="text-xs font-semibold text-teal-400 hover:text-teal-300 flex items-center space-x-1"
           >
-            <span>View Full Trends</span>
-            <ChevronRight className="w-4 h-4" />
+            <span>Details & History</span>
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          {/* Blood Pressure Card */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* Blood Pressure */}
           <div
             onClick={() => onNavigate('vitals')}
-            className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 hover:border-teal-500/40 transition-colors cursor-pointer"
+            className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-teal-500/40 cursor-pointer transition-colors"
           >
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold">Blood Pressure</span>
-              <Activity className="w-4 h-4 text-teal-400" />
-            </div>
-            <div className="flex items-baseline space-x-1">
-              <span className="text-2xl sm:text-3xl font-extrabold text-white">
-                {latestVital?.systolicBP && latestVital?.diastolicBP
-                  ? `${latestVital.systolicBP}/${latestVital.diastolicBP}`
-                  : '128/82'}
-              </span>
-              <span className="text-xs text-slate-400">mmHg</span>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-[11px]">
-              <span className="text-emerald-400 font-medium">Optimal Control</span>
-              <span className="text-slate-500 text-[10px]">Today</span>
-            </div>
+            <span className="text-[11px] text-slate-400 font-medium">Blood Pressure</span>
+            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+              {latestVital?.systolicBP ? `${latestVital.systolicBP}/${latestVital.diastolicBP}` : '128/82'}
+            </p>
+            <span className="text-[10px] font-bold text-emerald-400">✓ Healthy Target</span>
           </div>
 
-          {/* Blood Glucose Card */}
+          {/* Blood Sugar */}
           <div
             onClick={() => onNavigate('vitals')}
-            className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 hover:border-teal-500/40 transition-colors cursor-pointer"
+            className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-teal-500/40 cursor-pointer transition-colors"
           >
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold">Blood Glucose</span>
-              <HeartPulse className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div className="flex items-baseline space-x-1">
-              <span className="text-2xl sm:text-3xl font-extrabold text-white">
-                {latestVital?.bloodGlucose ? latestVital.bloodGlucose : '5.2'}
-              </span>
-              <span className="text-xs text-slate-400">mmol/L</span>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-[11px]">
-              <span className="text-emerald-400 font-medium">Fasting Normal</span>
-              <span className="text-slate-500 text-[10px]">8h ago</span>
-            </div>
+            <span className="text-[11px] text-slate-400 font-medium">Blood Sugar</span>
+            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+              {latestVital?.bloodGlucose ? `${latestVital.bloodGlucose}` : '5.2'} <span className="text-xs text-slate-400">mmol/L</span>
+            </p>
+            <span className="text-[10px] font-bold text-emerald-400">✓ Normal Fasting</span>
           </div>
 
-          {/* Resting Heart Rate Card */}
+          {/* Heart Rate */}
           <div
             onClick={() => onNavigate('vitals')}
-            className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 hover:border-teal-500/40 transition-colors cursor-pointer"
+            className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-teal-500/40 cursor-pointer transition-colors"
           >
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold">Heart Rate</span>
-              <Heart className="w-4 h-4 text-rose-400" />
-            </div>
-            <div className="flex items-baseline space-x-1">
-              <span className="text-2xl sm:text-3xl font-extrabold text-white">
-                {latestVital?.heartRate ? latestVital.heartRate : '70'}
-              </span>
-              <span className="text-xs text-slate-400">bpm</span>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-[11px]">
-              <span className="text-emerald-400 font-medium">Resting Normal</span>
-              <span className="text-slate-500 text-[10px]">Watch Sync</span>
-            </div>
+            <span className="text-[11px] text-slate-400 font-medium">Resting Heart Rate</span>
+            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+              {latestVital?.heartRate ? latestVital.heartRate : '70'} <span className="text-xs text-slate-400">bpm</span>
+            </p>
+            <span className="text-[10px] font-bold text-teal-400">✓ Steady Pulse</span>
           </div>
 
-          {/* Oxygen Saturation Card */}
+          {/* Blood Oxygen */}
           <div
             onClick={() => onNavigate('vitals')}
-            className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 hover:border-teal-500/40 transition-colors cursor-pointer"
+            className="p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-teal-500/40 cursor-pointer transition-colors"
           >
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold">SpO2 Oxygen</span>
-              <Shield className="w-4 h-4 text-blue-400" />
-            </div>
-            <div className="flex items-baseline space-x-1">
-              <span className="text-2xl sm:text-3xl font-extrabold text-white">
-                {latestVital?.spO2 ? latestVital.spO2 : '99'}%
-              </span>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-[11px]">
-              <span className="text-emerald-400 font-medium">Optimal</span>
-              <span className="text-slate-500 text-[10px]">Pulse Ox</span>
-            </div>
+            <span className="text-[11px] text-slate-400 font-medium">Oxygen Level</span>
+            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+              {latestVital?.spO2 ? latestVital.spO2 : '99'}%
+            </p>
+            <span className="text-[10px] font-bold text-emerald-400">✓ Optimal</span>
           </div>
         </div>
       </div>
 
-      {/* Main Healthcare Ecosystem Modules Grid with Visual Imagery */}
-      <div className="space-y-4">
+      {/* Direct Clinician Contact Strip: Video Call, Audio Call, Direct Inbox */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+              Connect Directly with Your Clinicians
+            </h2>
+            <p className="text-xs text-slate-400">
+              Tap below to video call, phone call, or message your doctor right now
+            </p>
+          </div>
+          <button
+            onClick={() => onNavigate('consultation')}
+            className="text-xs font-semibold text-teal-400 hover:text-teal-300 hidden sm:flex items-center space-x-1"
+          >
+            <span>All Clinicians</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {clinicians.slice(0, 2).map((clinician) => (
+            <div
+              key={clinician.id}
+              className="p-4 sm:p-5 rounded-3xl bg-slate-900 border border-slate-800 hover:border-teal-500/40 transition-all space-y-3 shadow-md"
+            >
+              <div className="flex items-center space-x-3.5">
+                <div className="relative">
+                  <img
+                    src={clinician.avatar}
+                    alt={clinician.name}
+                    className="w-14 h-14 rounded-2xl object-cover border border-teal-500/30"
+                  />
+                  <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900" title="Online" />
+                </div>
+                <div className="space-y-0.5">
+                  <h3 className="text-sm sm:text-base font-bold text-white">{clinician.name}</h3>
+                  <p className="text-xs text-teal-400 font-semibold">{clinician.specialty}</p>
+                  <p className="text-[11px] text-slate-400">{clinician.experienceYears} yrs experience • UGX {clinician.feeUGX.toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Direct 1-Click Action Buttons */}
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => onStartCall(clinician, 'video')}
+                  className="py-2 px-2.5 rounded-xl bg-teal-500/10 hover:bg-teal-500 text-teal-300 hover:text-slate-950 font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors"
+                >
+                  <Video className="w-3.5 h-3.5" />
+                  <span>Video Call</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onStartCall(clinician, 'audio')}
+                  className="py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center space-x-1.5 border border-slate-700 transition-colors"
+                >
+                  <Phone className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Voice Call</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenDirectChat(clinician)}
+                  className="py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center space-x-1.5 border border-slate-700 transition-colors"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Inbox</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Relatable Core Service Cards with Rich Visuals */}
+      <div className="space-y-3">
         <div>
-          <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
-            Healthcare Modules & Services
+          <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+            Explore Healthcare Services
           </h2>
-          <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-            Tap any module to open. All core records and tools operate offline with automatic cloud synchronization.
+          <p className="text-xs text-slate-400">
+            Simple, transparent healthcare services designed for Ugandan families
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
-          {healthcareModules.map((module) => {
-            const Icon = module.icon;
-            return (
-              <div
-                key={module.id}
-                onClick={() => onNavigate(module.tab)}
-                className="group relative bg-slate-900 rounded-3xl border border-slate-800/80 overflow-hidden hover:border-teal-500/50 hover:shadow-xl hover:shadow-teal-500/5 transition-all duration-200 cursor-pointer flex flex-col justify-between"
-              >
-                {/* Visual Imagery with Gradient Overlay */}
-                <div className="relative h-44 w-full overflow-hidden bg-slate-950">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+          {friendlyServices.map((svc) => (
+            <div
+              key={svc.id}
+              onClick={() => onNavigate(svc.tab)}
+              className="group bg-slate-900 rounded-3xl border border-slate-800 overflow-hidden hover:border-teal-500/50 hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between"
+            >
+              <div>
+                <div className="relative h-44 sm:h-48 w-full overflow-hidden bg-slate-950">
                   <img
-                    src={module.image}
-                    alt={module.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 filter brightness-90"
+                    src={svc.image}
+                    alt={svc.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
                   />
-                  {/* Subtle Top-to-Bottom Shadow for text contrast */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/30 to-transparent" />
-
-                  {/* Top Status Badge */}
-                  <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
-                    <div className="w-8 h-8 rounded-xl bg-slate-900/80 backdrop-blur-md border border-slate-700/80 flex items-center justify-center text-teal-400 shadow-md">
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border backdrop-blur-md ${module.badgeColor}`}>
-                      {module.badge}
-                    </span>
-                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent" />
+                  <span className={`absolute top-3 left-3 text-[10px] font-bold px-2.5 py-1 rounded-full border backdrop-blur-md ${svc.tagColor}`}>
+                    {svc.tag}
+                  </span>
                 </div>
 
-                {/* Module Details */}
-                <div className="p-5 pt-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-bold text-white group-hover:text-teal-300 transition-colors">
-                      {module.title}
-                    </h3>
-                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-teal-400 group-hover:translate-x-0.5 transition-all" />
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">
-                    {module.subtitle}
+                <div className="p-4 sm:p-5 space-y-1.5">
+                  <h3 className="text-base font-bold text-white group-hover:text-teal-300 transition-colors">
+                    {svc.title}
+                  </h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {svc.desc}
                   </p>
                 </div>
               </div>
-            );
-          })}
+
+              <div className="px-4 sm:px-5 pb-4 pt-1 flex items-center justify-between text-xs font-bold text-teal-400">
+                <span>{svc.actionText}</span>
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Two-Column Detail Section: Upcoming Visits & Active Care Plan */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Next Assigned Home Care Visit */}
-        <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 space-y-4">
+      {/* Upcoming Home Nurse Visit & Active Care Plan */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Next Assigned Home Visit */}
+        <div className="bg-slate-900 rounded-3xl border border-slate-800 p-5 space-y-3.5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white flex items-center space-x-2">
               <Calendar className="w-4 h-4 text-teal-400" />
-              <span>Upcoming Home Care Visit</span>
+              <span>Upcoming Home Nurse Visit</span>
             </h3>
             <button
               onClick={() => onNavigate('homecare')}
-              className="text-xs text-teal-400 hover:text-teal-300 font-medium"
+              className="text-xs text-teal-400 hover:text-teal-300 font-semibold"
             >
-              Manage
+              Details
             </button>
           </div>
 
           {upcomingHomeVisits.length > 0 ? (
-            <div className="p-4 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-3">
+            <div className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700/60 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">{upcomingHomeVisits[0].serviceType} Visit</span>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                <span className="text-xs font-bold text-white">{upcomingHomeVisits[0].serviceType} Home Visit</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300">
                   Confirmed
                 </span>
               </div>
 
-              {/* Assigned Clinician with Portrait */}
-              <div className="flex items-center space-x-3 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+              <div className="flex items-center space-x-3">
                 <img
                   src={upcomingHomeVisits[0].assignedWorkerAvatar || "https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80"}
                   alt={upcomingHomeVisits[0].assignedWorkerName || "Clinician"}
-                  className="w-11 h-11 rounded-xl object-cover border border-teal-500/40 shrink-0 shadow-md"
+                  className="w-11 h-11 rounded-xl object-cover border border-teal-500/40 shrink-0"
                 />
                 <div>
                   <p className="text-xs font-bold text-white">{upcomingHomeVisits[0].assignedWorkerName || "Sister Florence Nabatanzi"}</p>
-                  <p className="text-[11px] text-teal-400 font-medium">Community Health Nurse • Nakawa Outreach</p>
+                  <p className="text-[11px] text-teal-400">Community Outreach Nurse</p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2 text-[11px] text-slate-400">
+              <div className="flex items-center space-x-2 text-[11px] text-slate-300">
                 <Clock className="w-3.5 h-3.5 text-slate-400" />
-                <span>{upcomingHomeVisits[0].scheduledDate}</span>
+                <span>Date: {upcomingHomeVisits[0].scheduledDate}</span>
               </div>
-              <p className="text-[11px] text-slate-400 italic bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                "{upcomingHomeVisits[0].clinicalNotes}"
-              </p>
             </div>
           ) : (
-            <p className="text-xs text-slate-400">No home care visits scheduled for this week.</p>
+            <p className="text-xs text-slate-400">No home nurse visits scheduled this week.</p>
           )}
         </div>
 
-        {/* Active Care Plan Summary */}
-        <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 space-y-4">
+        {/* Daily Medication & Care Plan */}
+        <div className="bg-slate-900 rounded-3xl border border-slate-800 p-5 space-y-3.5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white flex items-center space-x-2">
               <Shield className="w-4 h-4 text-teal-400" />
-              <span>Active Care Plan: Hypertension</span>
+              <span>Daily Medicine & Blood Pressure Plan</span>
             </h3>
             <button
               onClick={() => onNavigate('chronic')}
-              className="text-xs text-teal-400 hover:text-teal-300 font-medium"
+              className="text-xs text-teal-400 hover:text-teal-300 font-semibold"
             >
-              View Full Protocol
+              My Plan
             </button>
           </div>
 
-          {activeCarePlan ? (
-            <div className="space-y-3.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-300">Target Blood Pressure:</span>
-                <span className="font-bold text-emerald-400">&lt; 130/80 mmHg</span>
+          <div className="space-y-2.5">
+            <div className="p-3 rounded-2xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between text-xs">
+              <div>
+                <p className="font-bold text-white">Amlodipine 5mg (1 tablet daily)</p>
+                <p className="text-[11px] text-slate-400">Taken morning at 08:00 AM</p>
               </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-300">Medication Adherence:</span>
-                <span className="font-bold text-teal-400">96% (Amlodipine 5mg OD)</span>
-              </div>
-              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                <div className="bg-teal-500 h-full rounded-full w-[96%]" />
-              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300">
+                96% Taken
+              </span>
+            </div>
 
-              {/* Supervising Doctor with Portrait */}
-              <div className="flex items-center space-x-3 p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/60 mt-1">
-                <img
-                  src="https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80"
-                  alt="Dr. Ronald Mukasa"
-                  className="w-10 h-10 rounded-xl object-cover border border-teal-500/40 shrink-0"
-                />
-                <div className="text-[11px]">
-                  <p className="font-bold text-white">Supervised by Dr. Ronald Mukasa</p>
-                  <p className="text-slate-400">Next review date: {activeCarePlan.nextReviewDate}</p>
-                </div>
+            <div className="flex items-center space-x-3 p-2.5 rounded-xl bg-slate-800/30">
+              <img
+                src="https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80"
+                alt="Dr. Ronald Mukasa"
+                className="w-10 h-10 rounded-xl object-cover border border-teal-500/40 shrink-0"
+              />
+              <div className="text-[11px]">
+                <p className="font-bold text-white">Supervised by Dr. Ronald Mukasa</p>
+                <p className="text-slate-400">Next review date: 2026-09-20</p>
               </div>
             </div>
-          ) : null}
+          </div>
         </div>
       </div>
     </div>

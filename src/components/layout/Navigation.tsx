@@ -151,8 +151,8 @@ export const Navigation: React.FC<NavigationProps> = ({
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
             >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>Health Library</span>
+              <BookOpen className="w-3.5 h-3.5 text-teal-400" />
+              <span>Video Health Talks</span>
             </button>
 
             <button
@@ -239,7 +239,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             }`}
           >
             <BookOpen className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Library</span>
+            <span className="text-[10px] font-medium">Health Talks</span>
           </button>
         </div>
       </div>

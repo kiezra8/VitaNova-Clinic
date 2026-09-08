@@ -75,6 +75,15 @@ export const App: React.FC = () => {
   // Modal for quick vitals logging
   const [showQuickVitals, setShowQuickVitals] = useState<boolean>(false);
 
+  // Doctor Authentication State (israelezrakisakye@gmail.com / 88888888)
+  const [isDoctorLoggedIn, setIsDoctorLoggedIn] = useState<boolean>(() => {
+    return localStorage.getItem('vitanova_doctor_logged_in') === 'true';
+  });
+
+  // Active Direct In-App Call State (Video & Audio Calls)
+  const [activeCallClinician, setActiveCallClinician] = useState<HealthcareWorker | null>(null);
+  const [callType, setCallType] = useState<'video' | 'audio' | null>(null);
+
   // Initialize DB and Network subscriptions
   useEffect(() => {
     // Seed initial local data if empty
@@ -339,6 +348,36 @@ export const App: React.FC = () => {
     });
   };
 
+  // Doctor Portal Authentication Handler (Admin / Doctor sign in with israelezrakisakye@gmail.com / 88888888)
+  const handleDoctorLogin = (email: string, pass: string): boolean => {
+    if (email.toLowerCase() === 'israelezrakisakye@gmail.com' && pass === '88888888') {
+      setIsDoctorLoggedIn(true);
+      setCurrentRole('doctor');
+      setActiveTab('clinician_portal');
+      localStorage.setItem('vitanova_doctor_logged_in', 'true');
+      return true;
+    }
+    return false;
+  };
+
+  const handleDoctorLogout = () => {
+    setIsDoctorLoggedIn(false);
+    setCurrentRole('patient');
+    setActiveTab('home');
+    localStorage.removeItem('vitanova_doctor_logged_in');
+  };
+
+  // Direct In-App Call Initiation (Video & Audio Calls with Health Workers)
+  const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
+    setActiveCallClinician(clinician);
+    setCallType(type);
+    setActiveTab('consultation');
+  };
+
+  const handleOpenDirectChat = (_clinician: HealthcareWorker) => {
+    setActiveTab('consultation');
+  };
+
   if (!patient) {
     return (
       <div className="h-full flex items-center justify-center bg-slate-950 text-slate-300 text-sm">
@@ -369,6 +408,9 @@ export const App: React.FC = () => {
         onNavigateHome={() => setActiveTab('home')}
         lowBandwidth={lowBandwidth}
         onToggleLowBandwidth={() => setLowBandwidth(!lowBandwidth)}
+        isDoctorLoggedIn={isDoctorLoggedIn}
+        onDoctorLogin={handleDoctorLogin}
+        onDoctorLogout={handleDoctorLogout}
       />
 
       {/* Navigation Subheader / Desktop Bar */}
@@ -397,8 +439,11 @@ export const App: React.FC = () => {
             latestVitals={vitals}
             activeCarePlan={carePlan}
             upcomingHomeVisits={homeVisits}
+            clinicians={clinicians}
             onNavigate={(tab) => setActiveTab(tab)}
             onOpenAddVitals={() => setActiveTab('vitals')}
+            onStartCall={handleStartCall}
+            onOpenDirectChat={handleOpenDirectChat}
             networkState={networkState}
             lastSyncedTime={syncInfo.lastSyncedTime}
             pendingCount={syncInfo.pendingCount}
@@ -423,13 +468,23 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* Consultation & Telehealth */}
+        {/* Consultation, Direct In-App Inbox & Telehealth Calls */}
         {activeTab === 'consultation' && (
           <ConsultationView
             clinicians={clinicians}
             networkState={networkState}
             onQueueOfflineMessage={handleQueueOfflineConsultation}
             onInitiatePayment={handleInitiatePayment}
+            activeCallClinician={activeCallClinician}
+            callType={callType}
+            onEndCall={() => {
+              setActiveCallClinician(null);
+              setCallType(null);
+            }}
+            onTriggerCall={(clinician, type) => {
+              setActiveCallClinician(clinician);
+              setCallType(type);
+            }}
           />
         )}
 
@@ -460,11 +515,14 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* Health Education Library */}
+        {/* Health Education Video Talks */}
         {activeTab === 'education' && (
           <EducationView
             articles={educationArticles}
             onToggleDownload={handleToggleEducationDownload}
+            onConsultDoctor={(_docName) => {
+              setActiveTab('consultation');
+            }}
           />
         )}
 

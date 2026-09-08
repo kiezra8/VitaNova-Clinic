@@ -150,15 +150,38 @@ export interface HomeCareRequest {
   syncStatus: SyncStatus;
 }
 
+export interface ActiveCallState {
+  clinician: HealthcareWorker;
+  type: 'video' | 'audio';
+  status: 'connecting' | 'connected' | 'ended';
+  startedAt?: string;
+  isMuted: boolean;
+  isVideoOff: boolean;
+  isSpeakerOn: boolean;
+}
+
 export interface HealthEducationArticle {
   id: string;
   title: string;
-  category: 'Maternal Health' | 'Child Health' | 'Chronic Disease' | 'Mental Health' | 'Nutrition' | 'First Aid' | 'General Health';
+  diseaseName: string;
+  category: 'Chronic Disease' | 'Maternal Health' | 'Child Health' | 'Infectious Diseases' | 'Mental Health' | 'Nutrition' | 'First Aid';
   summary: string;
-  readTimeMinutes: number;
+  videoDuration: string;
+  speakerName: string;
+  speakerRole: string;
+  speakerAvatar: string;
+  videoThumbnail: string;
   isDownloaded: boolean;
   downloadedAt?: string;
-  articleContent: {
+  talkContent: {
+    overview: string;
+    causes: string[];
+    symptoms: string[];
+    prevention: string[];
+    treatment: string[];
+    whenToSeekEmergency: string;
+  };
+  articleContent?: {
     simpleExplanation: string;
     symptoms: string[];
     riskFactors: string[];
@@ -166,8 +189,8 @@ export interface HealthEducationArticle {
     warningSigns: string[];
     whenToSeekCare: string;
   };
-  thumbnail: string;
-  videoDuration?: string;
+  thumbnail?: string;
+  readTimeMinutes?: number;
 }
 
 export interface FamilyMember {

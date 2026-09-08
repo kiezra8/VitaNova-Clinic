@@ -317,77 +317,217 @@ export async function seedInitialDataIfEmpty() {
 
   await db.homeVisits.bulkAdd(sampleHomeVisits);
 
-  // 6. Health Education Articles (Pre-cached for offline study)
+  // 6. Health Education Video Talks Library (Pre-cached for offline video study)
   const sampleEducation: HealthEducationArticle[] = [
     {
       id: 'edu_htn_01',
-      title: 'Managing High Blood Pressure at Home in Uganda',
+      title: 'High Blood Pressure (Hypertension) in Uganda: Causes, Lifestyle & Treatment',
+      diseaseName: 'Hypertension (High Blood Pressure)',
       category: 'Chronic Disease',
-      summary: 'Practical tips on local Ugandan diet modifications, reducing salt in matooke and luwombo, and monitoring your blood pressure accurately.',
-      readTimeMinutes: 5,
+      summary: 'Dr. Ronald Mukasa breaks down why blood pressure rises, hidden salt in local foods, how to protect your kidneys and heart, and effective modern medication.',
+      videoDuration: '8:45',
+      speakerName: 'Dr. Ronald Mukasa',
+      speakerRole: 'Consultant Cardiologist & Physician',
+      speakerAvatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
+      videoThumbnail: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=800&q=80',
       isDownloaded: true,
       downloadedAt: new Date().toISOString(),
-      thumbnail: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=600&q=80',
-      videoDuration: '4:20',
-      articleContent: {
-        simpleExplanation: 'Hypertension occurs when the pressure of blood pushing against the walls of your blood vessels is consistently too high. It often has no obvious symptoms ("silent killer"), but damages the heart and kidneys over time.',
-        symptoms: ['Morning headaches', 'Occasional dizzy spells', 'Blurred vision in severe cases', 'Shortness of breath on exertion'],
-        riskFactors: ['High salt intake', 'Lack of regular physical activity', 'Family history', 'High stress levels', 'Excess body weight'],
-        prevention: [
-          'Use natural spices (garlic, ginger, coriander) instead of salt cubes or excessive table salt',
-          'Enjoy fresh local fruits like pawpaw, avocado, and watermelon which are rich in potassium',
-          'Walk briskly for at least 30 minutes 5 days a week',
-          'Take prescribed medications regularly without skipping doses'
+      talkContent: {
+        overview: 'Hypertension is the "silent killer" that affects over 25% of adults in Uganda. Because it rarely presents severe symptoms initially, many people live with dangerous arterial pressure unaware until a stroke or heart attack occurs.',
+        causes: [
+          'High dietary sodium intake (excessive cooking salt, Royco cubes, processed snacks)',
+          'Genetics and family history of cardiovascular disease',
+          'Physical inactivity and sedentary urban lifestyle in Kampala',
+          'Chronic psychological stress and lack of restorative sleep',
+          'Excess body weight and arterial stiffness as we age'
         ],
-        warningSigns: ['Severe pounding headache', 'Chest tightness or radiating pain', 'Sudden numbness or facial weakness', 'Difficulty breathing'],
-        whenToSeekCare: 'If your blood pressure reading exceeds 180/110 mmHg, or if high readings are accompanied by chest pain or vision changes, seek emergency care at VitaNova Clinic immediately.'
+        symptoms: [
+          'Frequent dull morning headaches at the back of the head',
+          'Occasional dizziness, unsteadiness, or feeling lightheaded',
+          'Heart palpitations or rapid pounding sensation in chest',
+          'Blurred vision or seeing dark spots in advanced elevation',
+          'Shortness of breath on mild physical exertion'
+        ],
+        prevention: [
+          'Cut cooking salt: flavor foods with natural garlic, ginger, rosemary, and lemon juice',
+          'Eat potassium-rich local foods: steamed matooke, avocado, watermelon, dodo, and sweet potatoes',
+          'Walk briskly for 30 minutes at least 5 days a week',
+          'Maintain a healthy body weight and practice stress-reduction techniques',
+          'Get your blood pressure screened at least once every month at a local clinic'
+        ],
+        treatment: [
+          'First-line antihypertensive medications: Calcium Channel Blockers (e.g. Amlodipine 5mg - 10mg)',
+          'ACE inhibitors or ARBs (e.g. Lisinopril, Telmisartan) to shield kidney function',
+          'Daily home blood pressure monitoring logged directly in the VitaNova app',
+          'Regular kidney and cardiac function blood tests every 6 months',
+          'Consistent medication compliance without abrupt cessation'
+        ],
+        whenToSeekEmergency: 'If systolic blood pressure exceeds 180 mmHg or diastolic exceeds 110 mmHg, especially if accompanied by chest pressure, speech difficulty, or severe headache, call 999 or proceed to VitaNova Emergency Ward immediately.'
       }
     },
     {
-      id: 'edu_mat_02',
-      title: 'Essential Maternal Health & Safe Antenatal Care',
+      id: 'edu_dia_02',
+      title: 'Type 2 Diabetes Mellitus: Blood Sugar Spikes, Diet & Insulin Management',
+      diseaseName: 'Type 2 Diabetes Mellitus',
+      category: 'Chronic Disease',
+      summary: 'Learn the root cause of insulin resistance, how refined carbohydrates spike glucose, foot care, and how to keep HbA1c under 7.0%.',
+      videoDuration: '10:15',
+      speakerName: 'Dr. Ronald Mukasa',
+      speakerRole: 'Consultant Cardiologist & Physician',
+      speakerAvatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
+      videoThumbnail: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=800&q=80',
+      isDownloaded: true,
+      downloadedAt: new Date().toISOString(),
+      talkContent: {
+        overview: 'Diabetes Mellitus occurs when the pancreas either cannot produce enough insulin or body cells become resistant to insulin, leading to elevated glucose levels that damage blood vessels, nerves, and kidneys.',
+        causes: [
+          'Insulin resistance triggered by abdominal visceral fat accumulation',
+          'Excessive intake of refined starches: white posho, sugar-sweetened sodas, white rice, white bread',
+          'Sedentary lifestyle reducing cellular glucose uptake in skeletal muscle',
+          'Strong genetic predisposition in East African families'
+        ],
+        symptoms: [
+          'Excessive thirst (polydipsia) and drinking gallons of water daily',
+          'Frequent urination (polyuria), especially waking multiple times at night',
+          'Unexplained weight loss despite constant ravenous hunger',
+          'Persistent fatigue, low energy, and sluggishness after eating',
+          'Slow-healing cuts, recurrent skin boils, or numbness in toes'
+        ],
+        prevention: [
+          'Replace refined white posho with whole millet, sorghum, and brown rice',
+          'Fill half your plate with non-starchy leafy greens (sukuma wiki, nakati, cabbage, spinach)',
+          'Eliminate sodas and energy drinks; drink clean water or unsweetened lemon tea',
+          'Perform post-meal 15-minute walks to immediately absorb blood glucose into muscles'
+        ],
+        treatment: [
+          'Oral biguanides: Metformin 500mg - 1000mg with meals to improve insulin sensitivity',
+          'Sulfonylureas or SGLT2 inhibitors as prescribed by your VitaNova physician',
+          'Insulin therapy for poorly controlled or late-stage diabetes',
+          'Daily glucose tracking (fasting target: 4.0 - 6.5 mmol/L, post-meal < 8.5 mmol/L)',
+          'Daily diabetic foot inspections to prevent diabetic foot ulcers and gangrene'
+        ],
+        whenToSeekEmergency: 'Seek immediate hospitalization if experiencing confusion, fruity acetone breath odor, extreme dehydration, or blood glucose readings exceeding 20.0 mmol/L (risk of Diabetic Ketoacidosis / HHS).'
+      }
+    },
+    {
+      id: 'edu_mal_03',
+      title: 'Malaria in Uganda: Plasmodium Biology, Rapid Testing & ACT Treatment',
+      diseaseName: 'Severe & Uncomplicated Malaria',
+      category: 'Infectious Diseases',
+      summary: 'Dr. Peter Kigozi explains mosquito transmission, rapid diagnostic testing (RDT), why early treatment prevents cerebral malaria, and bed net safety.',
+      videoDuration: '7:20',
+      speakerName: 'Dr. Peter Kigozi',
+      speakerRole: 'Clinical Pathologist',
+      speakerAvatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
+      videoThumbnail: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=800&q=80',
+      isDownloaded: true,
+      downloadedAt: new Date().toISOString(),
+      talkContent: {
+        overview: 'Malaria is caused by Plasmodium falciparum parasites transmitted through the bites of infected female Anopheles mosquitoes. It remains a leading health challenge in Uganda, particularly for pregnant mothers and children under five.',
+        causes: [
+          'Bite of female Anopheles mosquito active predominantly between dusk and dawn',
+          'Stagnant water pools, unemptied tins, and unkempt bushes near residences fostering mosquito breeding',
+          'Failure to sleep under insecticide-treated mosquito nets (ITNs)'
+        ],
+        symptoms: [
+          'High fever characterized by alternating shivering chills and profuse drenching sweats',
+          'Severe generalized body aches, joint stiffness, and deep muscular pain',
+          'Pounding headache, nausea, vomiting, and loss of appetite',
+          'Extreme weakness and dizziness due to destruction of red blood cells'
+        ],
+        prevention: [
+          'Sleep under an LLIN (Long-Lasting Insecticidal Net) every single night',
+          'Clear stagnant water, tin cans, and overgrown grass within 50 meters of your dwelling',
+          'Install wire mosquito mesh on bedroom windows and vents',
+          'Take prescribed Intermittent Preventive Treatment in pregnancy (IPTp with Fansidar)'
+        ],
+        treatment: [
+          'Confirmed diagnosis using Rapid Diagnostic Test (RDT) or Blood Smear Microscopy first',
+          'First-line: Artemisinin-based Combination Therapy (ACT) e.g., Artemether-Lumefantrine (Coartem) full 3-day course with fatty food or milk',
+          'Intravenous Artesunate for severe or cerebral malaria with hospital admission',
+          'Paracetamol for fever relief and oral rehydration salts for electrolyte replenishment'
+        ],
+        whenToSeekEmergency: 'Immediate emergency transfer is required if a child or patient experiences convulsions, severe vomiting of all medicines, yellow eyes (jaundice), tea-colored urine, or loss of consciousness.'
+      }
+    },
+    {
+      id: 'edu_mat_04',
+      title: 'Maternal Antenatal Care, Danger Signs in Pregnancy & Safe Delivery',
+      diseaseName: 'Maternal Health & Pre-Eclampsia',
       category: 'Maternal Health',
-      summary: 'A complete guide for expectant mothers in Uganda covering nutrition, required ANC visits, malaria prevention, and birth preparedness.',
-      readTimeMinutes: 6,
+      summary: 'Midwife Agnes Akello guides expectant mothers on the 8 essential ANC contacts, identifying pre-eclampsia danger signs, nutrition, and birth preparedness.',
+      videoDuration: '9:10',
+      speakerName: 'Midwife Agnes Akello',
+      speakerRole: 'Antenatal & Postnatal Midwife',
+      speakerAvatar: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=400&q=80',
+      videoThumbnail: 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=800&q=80',
       isDownloaded: true,
       downloadedAt: new Date().toISOString(),
-      thumbnail: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=600&q=80',
-      videoDuration: '6:15',
-      articleContent: {
-        simpleExplanation: 'Antenatal care (ANC) is crucial for monitoring both maternal and fetal well-being. Attending at least 8 contacts during pregnancy prevents complications like pre-eclampsia and anaemia.',
-        symptoms: ['Normal pregnancy signs: mild nausea, breast tenderness, fatigue'],
-        riskFactors: ['Pre-existing anaemia', 'Malaria infection during pregnancy', 'High maternal age or teenage pregnancy'],
-        prevention: [
-          'Sleep under an insecticide-treated mosquito net (ITN) every night',
-          'Take daily iron and folic acid supplements as prescribed',
-          'Eat iron-rich foods: leafy greens (dodo, nakati), beans, and lean meat',
-          'Attend all scheduled ANC visits at your local clinic'
+      talkContent: {
+        overview: 'Pregnancy is a sacred journey that requires proactive clinical monitoring. Attending comprehensive Antenatal Care (ANC) prevents life-threatening complications including maternal haemorrhage, pre-eclampsia, and neonatal infections.',
+        causes: [
+          'Pre-eclampsia: abnormal placental vascular development causing systemic maternal hypertension and proteinuria',
+          'Maternal anaemia: iron and folate deficiency combined with parasitic or malaria load',
+          'Obstructed labor: cephalopelvic disproportion or abnormal fetal lie requiring surgical delivery'
         ],
-        warningSigns: ['Vaginal bleeding at any stage', 'Severe persistent headache or blurred vision', 'Decreased fetal movements', 'Swelling of face and hands'],
-        whenToSeekCare: 'Immediately report to VitaNova or dial our 24/7 maternal helpline at +256 800 200 999.'
+        symptoms: [
+          'Sudden swelling (edema) of face, eyelids, fingers, and feet',
+          'Persistent throbbing headache and seeing flashing spots or blurry vision (pre-eclampsia warning)',
+          'Epigastric or right upper quadrant abdominal pain under the ribs',
+          'Vaginal bleeding or watery fluid leakage before expected due date',
+          'Marked reduction or cessation of baby kicks and movements'
+        ],
+        prevention: [
+          'Attend at least 8 scheduled ANC appointments starting in the first trimester',
+          'Take daily Iron and Folic Acid supplements (IFA) throughout pregnancy',
+          'Sleep under an insecticide-treated mosquito net and receive IPTp malaria doses',
+          'Prepare a "Mama Kit" and emergency transportation plan before 32 weeks'
+        ],
+        treatment: [
+          'Regular blood pressure and urine protein monitoring at every ANC visit',
+          'Antihypertensive therapy (Methyldopa or Labetalol) under obstetric supervision',
+          'Magnesium Sulphate intravenous infusion for seizure prevention in severe pre-eclampsia',
+          'Safe facility-based delivery by certified midwives or obstetricians'
+        ],
+        whenToSeekEmergency: 'Vaginal bleeding, convulsions, intense headache, fever, or water breaking before labor begins are critical emergencies. Call VitaNova 24/7 Maternal Line at +256 800 200 999.'
       }
     },
     {
-      id: 'edu_fa_03',
-      title: 'First Aid for Choking & Pediatric Fevers',
-      category: 'First Aid',
-      summary: 'Step-by-step life saving actions for managing choking in infants and safely handling sudden high fevers in young children.',
-      readTimeMinutes: 4,
-      isDownloaded: true,
-      downloadedAt: new Date().toISOString(),
-      thumbnail: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=600&q=80',
-      videoDuration: '3:45',
-      articleContent: {
-        simpleExplanation: 'High fevers in children under 5 can trigger febrile convulsions. Understanding tepid sponging and correct paracetamol dosing protects your child.',
-        symptoms: ['Body temperature > 38.0°C', 'Flushed cheeks', 'Irritability or lethargy', 'Poor feeding'],
-        riskFactors: ['Viral respiratory infections', 'Malaria', 'Teething mild elevation', 'Over-wrapping in blankets'],
-        prevention: [
-          'Dress child in light, breathable cotton clothes',
-          'Offer frequent sips of clean water, breastmilk, or oral rehydration salts',
-          'Use lukewarm water (never cold ice water) on a washcloth for gentle sponge bathing'
+      id: 'edu_pne_05',
+      title: 'Pediatric Pneumonia & High Fevers: Early Recognition & Home Triage',
+      diseaseName: 'Pediatric Respiratory Infections & Pneumonia',
+      category: 'Child Health',
+      summary: 'Sister Florence Nabatanzi demonstrates how to count child breathing rates, recognize chest indrawing, manage fevers safely, and avoid dangerous cold baths.',
+      videoDuration: '6:50',
+      speakerName: 'Sister Florence Nabatanzi',
+      speakerRole: 'Senior Community Health Nurse',
+      speakerAvatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+      videoThumbnail: 'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=800&q=80',
+      isDownloaded: false,
+      talkContent: {
+        overview: 'Pneumonia is an acute respiratory infection affecting the lungs in young children. Early detection of fast breathing and chest indrawing saves lives before respiratory failure develops.',
+        causes: [
+          'Bacterial pathogens (Streptococcus pneumoniae, Haemophilus influenzae type b)',
+          'Respiratory viral infections (RSV, influenza) complicated by secondary infection',
+          'Indoor air pollution from charcoal stoves, firewood smoke, and crowded sleeping quarters'
         ],
-        warningSigns: ['Inability to drink or breastfeed', 'Vomiting everything', 'Stiff neck or continuous convulsions', 'Lethargy or loss of consciousness'],
-        whenToSeekCare: 'Do not delay: take the child to the nearest healthcare facility or call VitaNova emergency dispatch.'
+        symptoms: [
+          'Fast breathing: >50 breaths/min in infants (2-11 mos), >40 breaths/min in children (1-5 yrs)',
+          'Lower chest wall indrawing (chest sucks inward when breathing in)',
+          'Stridor or grunting sound when the child exhales',
+          'High fever (>38.5°C), persistent cough, poor feeding, and lethargy'
+        ],
+        prevention: [
+          'Ensure complete childhood immunization: PCV (Pneumococcal) and Pentavalent vaccines',
+          'Exclusive breastfeeding for the first 6 months to provide maternal antibodies',
+          'Cook in well-ventilated areas away from children; avoid indoor charcoal smoke'
+        ],
+        treatment: [
+          'Oral Amoxicillin dispersible tablets as prescribed by a health worker',
+          'Supportive oxygen therapy and nebulization for severe breathing distress in hospital',
+          'Tepid sponge bathing with lukewarm water (never ice-cold water) and pediatric paracetamol for high fever'
+        ],
+        whenToSeekEmergency: 'Take the child to hospital immediately if the child cannot breastfeed or drink, vomits everything, has convulsions, or shows bluish discoloration of lips (cyanosis).'
       }
     }
   ];
