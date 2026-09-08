@@ -37,6 +37,8 @@ import { ClinicianPortalView } from './components/views/ClinicianPortalView';
 import { AdminDashboardView } from './components/views/AdminDashboardView';
 import { PaymentModal } from './components/views/PaymentModal';
 import { FitnessView } from './components/views/FitnessView';
+import { VideoCallModal } from './components/views/VideoCallModal';
+import { fetchClinicians } from './lib/supabase';
 
 export const App: React.FC = () => {
   const [currentRole, setCurrentRole] = useState<UserRole>('patient');
@@ -99,76 +101,65 @@ export const App: React.FC = () => {
       setSyncInfo(info);
     });
 
-    // Fetch clinicians directory
-    fetch('/api/clinicians')
-      .then(res => res.json())
+    // Fetch clinicians from Supabase (free backend) with offline fallback
+    const FALLBACK_CLINICIANS = [
+      {
+        id: 'doc_mukasa',
+        name: 'Dr. Ronald Mukasa',
+        profession: 'Doctor',
+        specialty: 'Cardiologist & Internal Medicine',
+        experienceYears: 14,
+        verified: true, available: true, feeUGX: 45000,
+        avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
+        bio: 'Senior Consultant at VitaNova Nakawa. Specialist in hypertension management.',
+        languages: ['English', 'Luganda'], rating: 4.9, reviewCount: 128
+      },
+      {
+        id: 'nurse_florence',
+        name: 'Sister Florence Nabatanzi',
+        profession: 'Nurse',
+        specialty: 'Community Health & Chronic Wound Care',
+        experienceYears: 11,
+        verified: true, available: true, feeUGX: 25000,
+        avatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+        bio: 'Lead Community Outreach Nurse. Passionate about home-based elder care.',
+        languages: ['Luganda', 'English'], rating: 5.0, reviewCount: 94
+      },
+      {
+        id: 'midwife_agnes',
+        name: 'Midwife Agnes Akello',
+        profession: 'Midwife',
+        specialty: 'Antenatal, Postnatal & Lactation Counseling',
+        experienceYears: 9,
+        verified: true, available: true, feeUGX: 30000,
+        avatar: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=400&q=80',
+        bio: 'Certified Midwife specializing in postpartum mother & infant checkups.',
+        languages: ['English', 'Ateso', 'Luganda'], rating: 4.8, reviewCount: 76
+      },
+      {
+        id: 'physio_kato',
+        name: 'Dr. Brian Kato (PT)',
+        profession: 'Physiotherapist',
+        specialty: 'Orthopaedic & Neurological Rehabilitation',
+        experienceYears: 8,
+        verified: true, available: true, feeUGX: 40000,
+        avatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
+        bio: 'Physical therapist focused on post-stroke mobility and in-home therapy.',
+        languages: ['English', 'Luganda'], rating: 4.9, reviewCount: 62
+      }
+    ];
+
+    fetchClinicians()
       .then(data => {
-        if (data.clinicians) setClinicians(data.clinicians);
+        if (data && data.length > 0) {
+          setClinicians(data as any);
+        } else {
+          // Supabase not configured yet or offline — use built-in fallback
+          setClinicians(FALLBACK_CLINICIANS as any);
+        }
       })
       .catch(() => {
-        // Fallback default clinicians if offline on launch
-        setClinicians([
-          {
-            id: 'doc_mukasa',
-            name: 'Dr. Ronald Mukasa',
-            profession: 'Doctor',
-            specialty: 'Cardiologist & Internal Medicine',
-            experienceYears: 14,
-            verified: true,
-            available: true,
-            feeUGX: 45000,
-            avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
-            bio: 'Senior Consultant at VitaNova Nakawa. Specialist in hypertension management.',
-            languages: ['English', 'Luganda'],
-            rating: 4.9,
-            reviewCount: 128
-          },
-          {
-            id: 'nurse_florence',
-            name: 'Sister Florence Nabatanzi',
-            profession: 'Nurse',
-            specialty: 'Community Health & Chronic Wound Care',
-            experienceYears: 11,
-            verified: true,
-            available: true,
-            feeUGX: 25000,
-            avatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
-            bio: 'Lead Community Outreach Nurse. Passionate about home-based elder care.',
-            languages: ['Luganda', 'English'],
-            rating: 5.0,
-            reviewCount: 94
-          },
-          {
-            id: 'midwife_agnes',
-            name: 'Midwife Agnes Akello',
-            profession: 'Midwife',
-            specialty: 'Antenatal, Postnatal & Lactation Counseling',
-            experienceYears: 9,
-            verified: true,
-            available: true,
-            feeUGX: 30000,
-            avatar: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=400&q=80',
-            bio: 'Certified Midwife specializing in home-based postpartum mother & infant checkups.',
-            languages: ['English', 'Ateso', 'Luganda'],
-            rating: 4.8,
-            reviewCount: 76
-          },
-          {
-            id: 'physio_kato',
-            name: 'Dr. Brian Kato (PT)',
-            profession: 'Physiotherapist',
-            specialty: 'Orthopaedic & Neurological Rehabilitation',
-            experienceYears: 8,
-            verified: true,
-            available: true,
-            feeUGX: 40000,
-            avatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
-            bio: 'Physical therapist focused on post-stroke mobility recovery and in-home physical therapy.',
-            languages: ['English', 'Luganda'],
-            rating: 4.9,
-            reviewCount: 62
-          }
-        ]);
+        setClinicians(FALLBACK_CLINICIANS as any);
       });
 
     return () => {
@@ -368,11 +359,11 @@ export const App: React.FC = () => {
     localStorage.removeItem('vitanova_doctor_logged_in');
   };
 
-  // Direct In-App Call Initiation (Video & Audio Calls with Health Workers)
+  // Direct In-App Call Initiation — opens Jitsi Meet full-screen overlay
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
     setActiveCallClinician(clinician);
     setCallType(type);
-    setActiveTab('consultation');
+    // Do NOT navigate — call modal is a full-screen overlay over current tab
   };
 
   const handleOpenDirectChat = (_clinician: HealthcareWorker) => {
@@ -594,6 +585,19 @@ export const App: React.FC = () => {
           console.log('[VitaNova Payment] Successful transaction:', txId);
         }}
       />
+
+      {/* ── LIVE VIDEO / VOICE CALL OVERLAY (Jitsi Meet — Free, No API Key) ── */}
+      {activeCallClinician && callType && (
+        <VideoCallModal
+          clinician={activeCallClinician}
+          callType={callType}
+          memberName={patient.fullName}
+          onEnd={() => {
+            setActiveCallClinician(null);
+            setCallType(null);
+          }}
+        />
+      )}
     </div>
   );
 };

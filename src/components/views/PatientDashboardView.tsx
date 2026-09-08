@@ -222,30 +222,30 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
           <span className="text-[10px] text-teal-400 font-semibold">7 Available</span>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-1.5">
           {clinicServices.map((svc) => {
             const IconComp = svc.icon;
             return (
               <button
                 key={svc.id}
                 onClick={() => onNavigate(svc.tab)}
-                className="group relative aspect-square rounded-2xl overflow-hidden border border-slate-800/80 hover:border-teal-500/60 shadow-md transition-all duration-200 active:scale-95"
+                className="group relative h-[78px] rounded-xl overflow-hidden border border-slate-800/80 hover:border-teal-500/60 shadow-md transition-all duration-200 active:scale-95"
               >
                 <img
                   src={svc.image}
                   alt={svc.title}
                   className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/15 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent" />
 
                 {/* Icon top-left */}
-                <div className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-black/40 backdrop-blur-sm border border-white/10 flex items-center justify-center">
-                  <IconComp className="w-3 h-3 text-teal-300" />
+                <div className="absolute top-1 left-1 w-5 h-5 rounded-md bg-black/40 backdrop-blur-sm border border-white/10 flex items-center justify-center">
+                  <IconComp className="w-2.5 h-2.5 text-teal-300" />
                 </div>
 
-                {/* Title bottom-center */}
-                <div className="absolute bottom-1.5 inset-x-1 text-center">
-                  <p className="text-[9px] sm:text-[10px] font-extrabold text-white leading-tight drop-shadow-lg">
+                {/* Title bottom */}
+                <div className="absolute bottom-1 inset-x-1 text-center">
+                  <p className="text-[8px] font-extrabold text-white leading-tight drop-shadow-lg">
                     {svc.title}
                   </p>
                 </div>
