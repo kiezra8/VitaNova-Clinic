@@ -27,6 +27,7 @@ export type NavTab =
   | 'membership'
   | 'whatsapp'
   | 'emergency'
+  | 'fitness'
   | 'clinician_portal'
   | 'admin';
 
