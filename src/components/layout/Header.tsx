@@ -184,7 +184,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span>{isSimulated ? 'Offline Sim: ON' : 'Simulate Offline'}</span>
             </button>
 
-            {/* Doctor Sign In / Doctor Mode Button (No Clinic Admin in dropdown!) */}
+            {/* Clinician Staff Login — This is ONLY for healthcare staff, not regular users/members */}
             {isDoctorLoggedIn ? (
               <div className="flex items-center space-x-1.5 bg-teal-500/10 border border-teal-500/30 rounded-xl px-2.5 py-1">
                 <div className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
@@ -193,7 +193,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   type="button"
                   onClick={onDoctorLogout}
-                  title="Sign out of Doctor Portal"
+                  title="Sign out of clinician portal"
                   className="p-1 hover:text-rose-400 text-slate-400 transition-colors"
                 >
                   <LogOut className="w-3.5 h-3.5" />
@@ -204,10 +204,11 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={() => setShowDoctorLoginModal(true)}
                 className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-semibold transition-colors"
+                title="For healthcare staff only"
               >
                 <Lock className="w-3 h-3 text-teal-400" />
-                <span className="hidden xs:inline">Doctor Sign In</span>
-                <span className="xs:hidden">Doctor</span>
+                <span className="hidden xs:inline">Staff Login</span>
+                <span className="xs:hidden">Staff</span>
               </button>
             )}
 
@@ -233,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center">
                   <Stethoscope className="w-4 h-4" />
                 </div>
-                <h3 className="text-sm font-bold text-white">Doctor / Staff Portal</h3>
+                <h3 className="text-sm font-bold text-white">Clinician & Staff Portal</h3>
               </div>
               <button
                 onClick={() => setShowDoctorLoginModal(false)}
@@ -243,9 +244,10 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
 
-            <p className="text-xs text-slate-300">
-              Sign in with your registered clinician credentials to access patient files, home visits, and administrative oversight.
-            </p>
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <p className="text-[11px] text-amber-300 font-semibold">⚕️ For Healthcare Staff Only</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">This portal is only for registered doctors, nurses, midwives, and clinical administrators. Regular members sign in from the member app.</p>
+            </div>
 
             <form onSubmit={handleDoctorLoginSubmit} className="space-y-3">
               <div>

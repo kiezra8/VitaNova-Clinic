@@ -36,6 +36,7 @@ import { EmergencyView } from './components/views/EmergencyView';
 import { ClinicianPortalView } from './components/views/ClinicianPortalView';
 import { AdminDashboardView } from './components/views/AdminDashboardView';
 import { PaymentModal } from './components/views/PaymentModal';
+import { FitnessView } from './components/views/FitnessView';
 
 export const App: React.FC = () => {
   const [currentRole, setCurrentRole] = useState<UserRole>('patient');
@@ -512,6 +513,13 @@ export const App: React.FC = () => {
             watch={watchTelemetry}
             onSyncWatchData={handleSyncWatchData}
             onPairNewDevice={() => {}}
+          />
+        )}
+
+        {/* Fitness & Weight Loss Journey */}
+        {activeTab === 'fitness' && (
+          <FitnessView
+            onNavigateVitals={() => setActiveTab('vitals')}
           />
         )}
 
