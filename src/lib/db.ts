@@ -182,7 +182,7 @@ export async function seedInitialDataIfEmpty() {
       timestamp: new Date(Date.now() - 30 * 86400000).toISOString(),
       category: 'consultation',
       title: 'Comprehensive Cardiovascular Assessment',
-      description: 'Patient presented for routine screening and occasional headache. Blood pressure noted at 142/92. Commenced on Amlodipine 5mg OD with DASH diet counseling. Recheck scheduled.',
+      description: 'Patient presented for routine cardiovascular evaluation and intermittent tension headache. Resting BP noted at 142/92 mmHg. Initiated on Amlodipine 5mg OD with DASH diet sodium reduction counseling. 2-week follow-up planned.',
       doctorName: 'Dr. Ronald Mukasa',
       doctorRole: 'Consultant Cardiologist',
       doctorAvatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
@@ -201,7 +201,7 @@ export async function seedInitialDataIfEmpty() {
       timestamp: new Date(Date.now() - 25 * 86400000).toISOString(),
       category: 'lab',
       title: 'Lipid Profile & Renal Function Panel',
-      description: 'Serum Creatinine: 72 umol/L (Normal), eGFR: >90 mL/min, Total Cholesterol: 4.8 mmol/L, Fasting Blood Glucose: 5.4 mmol/L. Electrolytes within normal limits.',
+      description: 'Serum Creatinine: 72 µmol/L (Ref: 45-84 - Normal) • eGFR: >90 mL/min/1.73m² (Normal) • Total Cholesterol: 4.8 mmol/L (Desirable <5.2) • Fasting Blood Glucose: 5.4 mmol/L (Normal) • Serum Potassium: 4.1 mmol/L. Electrolytes within normal physiological limits.',
       doctorName: 'Dr. Peter Kigozi',
       doctorRole: 'Clinical Pathologist',
       doctorAvatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
@@ -209,7 +209,7 @@ export async function seedInitialDataIfEmpty() {
       syncStatus: 'synced',
       auditTrail: {
         createdAt: new Date(Date.now() - 25 * 86400000).toISOString(),
-        author: 'Dr. Peter Kigozi',
+        author: 'Dr. Peter Kigozi (Lab Dir #KLA/771)',
         device: 'lab-sys-09',
         version: 1
       }
@@ -220,7 +220,7 @@ export async function seedInitialDataIfEmpty() {
       timestamp: new Date(Date.now() - 14 * 86400000).toISOString(),
       category: 'consultation',
       title: 'Community Nursing Home Visit & Education',
-      description: 'Conducted home assessment in Nakawa. Verified medication storage and adherence. Demonstrated self-monitoring technique with digital sphygmomanometer. Sodium restriction reinforced.',
+      description: 'Conducted home clinical assessment in Nakawa. Verified medication storage and adherence. Demonstrated self-monitoring technique with digital sphygmomanometer. Dietary potassium and sodium guidelines reinforced.',
       doctorName: 'Sister Florence Nabatanzi',
       doctorRole: 'Senior Community Health Nurse',
       doctorAvatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
@@ -228,8 +228,122 @@ export async function seedInitialDataIfEmpty() {
       syncStatus: 'synced',
       auditTrail: {
         createdAt: new Date(Date.now() - 14 * 86400000).toISOString(),
+        author: 'Sister Florence Nabatanzi (Nurse Reg #NCU/102)',
+        device: 'nurse_tablet_ug_04',
+        version: 1
+      }
+    },
+    {
+      id: 'emr_004',
+      patientId: 'pat_sarah_001',
+      timestamp: new Date(Date.now() - 10 * 86400000).toISOString(),
+      category: 'medication',
+      title: 'Antihypertensive & Inhaler Regimen Dispensed',
+      description: 'Prescription Dispensed:\n1. Amlodipine Besylate 5mg: 30 tablets (1 tab once daily in morning with food).\n2. Salbutamol Inhaler 100mcg: 1 canister (2 puffs PRN 15 minutes before aerobic exercise or on onset of chest tightness).\nVerified zero drug interactions with patient allergy profile.',
+      doctorName: 'Pharm. Grace Atuhaire',
+      doctorRole: 'Lead Clinical Pharmacist',
+      doctorAvatar: 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=400&q=80',
+      clinicBranch: 'VitaNova Central Pharmacy, Nakawa',
+      syncStatus: 'synced',
+      auditTrail: {
+        createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+        author: 'Pharm. Grace Atuhaire (PhS Reg #UG/339)',
+        device: 'rx-dispense-term-02',
+        version: 1
+      }
+    },
+    {
+      id: 'emr_005',
+      patientId: 'pat_sarah_001',
+      timestamp: new Date(Date.now() - 7 * 86400000).toISOString(),
+      category: 'lab',
+      title: 'HbA1c Glycated Hemoglobin & Metabolic Profile',
+      description: 'HbA1c: 5.4% (Optimal <5.7% - Non-diabetic) • Fasting Plasma Glucose: 5.1 mmol/L (Ref: 3.9 - 5.6 mmol/L) • Urine Albumin/Creatinine Ratio (ACR): Normal <3.0 mg/mmol. Demonstrates excellent glycemic stability and zero microvascular stress.',
+      doctorName: 'Dr. Peter Kigozi',
+      doctorRole: 'Clinical Pathologist',
+      doctorAvatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
+      clinicBranch: 'VitaNova Central Pathology Laboratory',
+      syncStatus: 'synced',
+      auditTrail: {
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        author: 'Dr. Peter Kigozi',
+        device: 'lab-sys-09',
+        version: 1
+      }
+    },
+    {
+      id: 'emr_006',
+      patientId: 'pat_sarah_001',
+      timestamp: new Date(Date.now() - 5 * 86400000).toISOString(),
+      category: 'condition',
+      title: 'Essential Stage 1 Hypertension Diagnosis & Baseline ECG',
+      description: 'ICD-10: I10 Essential Hypertension. Standard 12-lead ECG completed: Normal sinus rhythm at 72 bpm, normal axis, no ST-T segment elevation or left ventricular strain. Condition classified as mild Stage 1, well-responsive to lifestyle and Amlodipine 5mg.',
+      doctorName: 'Dr. Ronald Mukasa',
+      doctorRole: 'Consultant Cardiologist',
+      doctorAvatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
+      clinicBranch: 'VitaNova Main Clinic, Nakawa Kampala',
+      syncStatus: 'synced',
+      auditTrail: {
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        author: 'Dr. Ronald Mukasa (Reg #UMDPC/4192)',
+        device: 'terminal-nakawa-01',
+        version: 1
+      }
+    },
+    {
+      id: 'emr_007',
+      patientId: 'pat_sarah_001',
+      timestamp: new Date(Date.now() - 3 * 86400000).toISOString(),
+      category: 'immunization',
+      title: 'Adult Tetanus Toxoid (TT) & COVID-19 Booster',
+      description: 'Administered 0.5 mL Tetanus Toxoid Vaccine (Batch #TT-UG-991, Expiry: 10/2028) IM in left deltoid. Administered Pfizer-BioNTech Bivalent Booster 0.3 mL IM in right deltoid. Patient monitored for 20 minutes with zero hypersensitivity or anaphylaxis.',
+      doctorName: 'Sister Florence Nabatanzi',
+      doctorRole: 'Senior Community Health Nurse',
+      doctorAvatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+      clinicBranch: 'VitaNova Immunization Unit',
+      syncStatus: 'synced',
+      auditTrail: {
+        createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
         author: 'Sister Florence Nabatanzi',
         device: 'nurse_tablet_ug_04',
+        version: 1
+      }
+    },
+    {
+      id: 'emr_008',
+      patientId: 'pat_sarah_001',
+      timestamp: new Date(Date.now() - 1 * 86400000).toISOString(),
+      category: 'lab',
+      title: 'Complete Blood Count (CBC) & Malaria Parasitology',
+      description: 'Hemoglobin: 13.4 g/dL (Normal female range: 12.0 - 15.5 g/dL) • Total White Blood Count: 6.1 × 10⁹/L (Normal) • Platelet Count: 254 × 10⁹/L • Malaria Rapid Diagnostic Test (RDT): NEGATIVE • Giemsa-stained thin blood film: No Plasmodium parasites seen.',
+      doctorName: 'Dr. Peter Kigozi',
+      doctorRole: 'Clinical Pathologist',
+      doctorAvatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
+      clinicBranch: 'VitaNova Central Pathology Laboratory',
+      syncStatus: 'synced',
+      auditTrail: {
+        createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+        author: 'Dr. Peter Kigozi',
+        device: 'lab-sys-09',
+        version: 1
+      }
+    },
+    {
+      id: 'emr_009',
+      patientId: 'pat_sarah_001',
+      timestamp: new Date(Date.now() - 12 * 3600000).toISOString(),
+      category: 'allergy',
+      title: 'Critical Allergy Alert: Beta-Lactam & Sulfonamides',
+      description: 'Severe Type-1 IgE hypersensitivity documented: Acute facial angioedema and extensive cutaneous urticaria following oral Amoxicillin. Avoid: Penicillins, Ampicillin, Co-amoxiclav, and Trimethoprim-Sulfamethoxazole (Septrin). Safe alternatives: Macrolides (Azithromycin) and Fluoroquinolones.',
+      doctorName: 'Dr. Ronald Mukasa',
+      doctorRole: 'Consultant Cardiologist',
+      doctorAvatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
+      clinicBranch: 'VitaNova Alert Registry',
+      syncStatus: 'synced',
+      auditTrail: {
+        createdAt: new Date(Date.now() - 12 * 3600000).toISOString(),
+        author: 'Dr. Ronald Mukasa',
+        device: 'terminal-nakawa-01',
         version: 1
       }
     }

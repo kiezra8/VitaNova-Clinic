@@ -117,3 +117,4 @@ VALUES
     'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=200&q=80'
   )
 ON CONFLICT (id) DO NOTHING;
+ 

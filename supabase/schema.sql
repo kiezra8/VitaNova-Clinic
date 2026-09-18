@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS family_members (
   phone           TEXT,
   avatar_url      TEXT,
   created_at      TIMESTAMPTZ DEFAULT NOW()
-);
+); 
 
 -- ── INDEXES for performance ───────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_vitals_member_id ON vital_records(member_id);

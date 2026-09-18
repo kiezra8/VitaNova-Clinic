@@ -17,7 +17,9 @@ import {
   Dumbbell,
   CheckCircle2,
   Activity,
-  Heart
+  Heart,
+  AlertCircle,
+  Sparkles
 } from 'lucide-react';
 import { PatientProfile, VitalRecord, CarePlan, HomeCareRequest, HealthcareWorker } from '../../types';
 import { NavTab } from '../layout/Navigation';
@@ -101,9 +103,7 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
     return () => clearInterval(interval);
   }, [isPaused, carouselSlides.length]);
 
-  // ── 7 Services (3 cols × 2 rows top + 1 wide on the last row if odd, but we use 3×3 with 1 removed = 3+3+1) ──
-  // For 7 items in grid-cols-3: rows = ⌈7/3⌉ = 3 rows, last row has 1 card
-  // We'll do 6 items in 3×2 + fitness as wide card below, but user said "include fitness in services", so 7 in grid-cols-3.
+  // ── 10 Services (5 cols × 2 rows = 10 items, reduced card width for compact elegance) ──
   const clinicServices = [
     {
       id: 'consultation',
@@ -153,6 +153,27 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
       icon: Users,
       image: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=400&q=80',
       tab: 'family' as NavTab
+    },
+    {
+      id: 'chronic',
+      title: 'Care Plan',
+      icon: Shield,
+      image: 'https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=400&q=80',
+      tab: 'chronic' as NavTab
+    },
+    {
+      id: 'emergency',
+      title: 'Emergency SOS',
+      icon: AlertCircle,
+      image: 'https://images.unsplash.com/photo-1587745416684-47953f16f02f?auto=format&fit=crop&w=400&q=80',
+      tab: 'emergency' as NavTab
+    },
+    {
+      id: 'membership',
+      title: 'Health Plans',
+      icon: Sparkles,
+      image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?auto=format&fit=crop&w=400&q=80',
+      tab: 'membership' as NavTab
     }
   ];
 
@@ -215,37 +236,38 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* ── 2. SERVICES — 7 items in 3 cols grid, each navigates to its own page ── */}
+      {/* ── 2. SERVICES — 10 items in 5 cols grid, reduced width cards ── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-0.5">
           <h2 className="text-sm font-bold text-white">Our Services</h2>
-          <span className="text-[10px] text-teal-400 font-semibold">7 Available</span>
+          <span className="text-[10px] text-teal-400 font-semibold">10 Available</span>
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
           {clinicServices.map((svc) => {
             const IconComp = svc.icon;
             return (
               <button
                 key={svc.id}
                 onClick={() => onNavigate(svc.tab)}
-                className="group relative h-[78px] rounded-xl overflow-hidden border border-slate-800/80 hover:border-teal-500/60 shadow-md transition-all duration-200 active:scale-95"
+                className="group relative h-[72px] sm:h-[82px] rounded-xl overflow-hidden border border-slate-800/90 hover:border-teal-400/80 shadow-sm hover:shadow-teal-500/10 transition-all duration-200 active:scale-95 flex flex-col justify-between p-1.5"
+                title={svc.title}
               >
                 <img
                   src={svc.image}
                   alt={svc.title}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/45 to-black/30" />
 
                 {/* Icon top-left */}
-                <div className="absolute top-1 left-1 w-5 h-5 rounded-md bg-black/40 backdrop-blur-sm border border-white/10 flex items-center justify-center">
+                <div className="relative z-10 w-5 h-5 rounded-md bg-black/60 backdrop-blur-sm border border-white/15 flex items-center justify-center">
                   <IconComp className="w-2.5 h-2.5 text-teal-300" />
                 </div>
 
                 {/* Title bottom */}
-                <div className="absolute bottom-1 inset-x-1 text-center">
-                  <p className="text-[8px] font-extrabold text-white leading-tight drop-shadow-lg">
+                <div className="relative z-10 text-center w-full">
+                  <p className="text-[7.5px] sm:text-[9px] font-bold text-white leading-tight drop-shadow-md truncate">
                     {svc.title}
                   </p>
                 </div>
