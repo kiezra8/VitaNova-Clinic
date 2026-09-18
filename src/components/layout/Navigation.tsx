@@ -81,7 +81,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               }`}
             >
               <UserCheck className="w-3.5 h-3.5" />
-              <span>Talk to Clinician</span>
+              <span>Care & Clinicians</span>
             </button>
 
             <button

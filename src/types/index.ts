@@ -103,6 +103,12 @@ export interface HealthcareWorker {
   languages: string[];
   rating: number;
   reviewCount: number;
+  registrationNumber?: string;
+  education?: string;
+  hospitalAffiliation?: string;
+  conditionsTreated?: string[];
+  availabilityHours?: string;
+  responseSpeed?: string;
 }
 
 export interface CarePlan {

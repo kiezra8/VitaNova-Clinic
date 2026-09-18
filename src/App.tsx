@@ -109,10 +109,26 @@ export const App: React.FC = () => {
         profession: 'Doctor',
         specialty: 'Cardiologist & Internal Medicine',
         experienceYears: 14,
-        verified: true, available: true, feeUGX: 45000,
+        verified: true,
+        available: true,
+        feeUGX: 45000,
         avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
-        bio: 'Senior Consultant at VitaNova Nakawa. Specialist in hypertension management.',
-        languages: ['English', 'Luganda'], rating: 4.9, reviewCount: 128
+        bio: 'Senior Consultant Physician at VitaNova Nakawa. Over 14 years managing complex adult illnesses with a dedicated focus on hypertension control, heart failure prevention, and personalized lifestyle medicine.',
+        languages: ['English', 'Luganda'],
+        rating: 4.9,
+        reviewCount: 128,
+        registrationNumber: 'UMDPC-MED-2012-4821',
+        education: 'MBChB (Makerere University), MMed Internal Medicine (Mulago)',
+        hospitalAffiliation: 'Mulago National Referral Hospital & VitaNova Nakawa Branch',
+        conditionsTreated: [
+          'High Blood Pressure & Hypertension',
+          'Heart Palpitations & Arrhythmia',
+          'Type 2 Diabetes Mellitus Management',
+          'Chest Tightness & Cardiovascular Risk Review',
+          'Long-term Medication Safety & Dose Titration'
+        ],
+        availabilityHours: 'Mon – Sat: 8:00 AM – 7:30 PM (EAT)',
+        responseSpeed: '< 5 mins average response'
       },
       {
         id: 'nurse_florence',
@@ -120,10 +136,26 @@ export const App: React.FC = () => {
         profession: 'Nurse',
         specialty: 'Community Health & Chronic Wound Care',
         experienceYears: 11,
-        verified: true, available: true, feeUGX: 25000,
+        verified: true,
+        available: true,
+        feeUGX: 25000,
         avatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
-        bio: 'Lead Community Outreach Nurse. Passionate about home-based elder care.',
-        languages: ['Luganda', 'English'], rating: 5.0, reviewCount: 94
+        bio: 'Lead Community Outreach Nurse. Passionate about home-based elder care, post-surgical wound healing, and family health education. Certified in gentle sterile wound dressing and diabetic foot prophylaxis.',
+        languages: ['Luganda', 'English'],
+        rating: 5.0,
+        reviewCount: 94,
+        registrationNumber: 'UNMC-RN-2015-9943',
+        education: 'BSc Nursing Science (Aga Khan University, Kampala)',
+        hospitalAffiliation: 'VitaNova Community Outreach & Kawempe General Hospital',
+        conditionsTreated: [
+          'Chronic Diabetic Wound Dressing & Care',
+          'Post-Surgical Suture Care & Inspection',
+          'In-Home Vital Signs Assessment (BP, Glucose, SpO2)',
+          'Intravenous & Intramuscular Medication Administration',
+          'Elderly Bedside Care & Pressure Sore Prevention'
+        ],
+        availabilityHours: 'Daily: 7:00 AM – 9:00 PM (EAT)',
+        responseSpeed: '< 3 mins average response'
       },
       {
         id: 'midwife_agnes',
@@ -131,10 +163,26 @@ export const App: React.FC = () => {
         profession: 'Midwife',
         specialty: 'Antenatal, Postnatal & Lactation Counseling',
         experienceYears: 9,
-        verified: true, available: true, feeUGX: 30000,
+        verified: true,
+        available: true,
+        feeUGX: 30000,
         avatar: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=400&q=80',
-        bio: 'Certified Midwife specializing in postpartum mother & infant checkups.',
-        languages: ['English', 'Ateso', 'Luganda'], rating: 4.8, reviewCount: 76
+        bio: 'Certified Registered Midwife dedicated to reassuring expectant mothers and new parents. Experienced in maternal danger sign screening, lactation guidance, newborn cord care, and maternal mental health support.',
+        languages: ['English', 'Ateso', 'Luganda'],
+        rating: 4.8,
+        reviewCount: 76,
+        registrationNumber: 'UNMC-RM-2017-3310',
+        education: 'Diploma in Midwifery (Nsambya School of Nursing & Midwifery)',
+        hospitalAffiliation: 'St. Francis Hospital Nsambya & VitaNova Maternal Center',
+        conditionsTreated: [
+          'Antenatal Health Assessment & Guidance',
+          'Postpartum Recovery & Bleeding Checks',
+          'Breastfeeding Technique & Mastitis Prevention',
+          'Newborn Jaundice & Cord Care Guidance',
+          'Birth Planning & Family Planning Consultations'
+        ],
+        availabilityHours: 'Mon – Sun: 24/7 On-Call Support',
+        responseSpeed: '< 10 mins average response'
       },
       {
         id: 'physio_kato',
@@ -142,10 +190,26 @@ export const App: React.FC = () => {
         profession: 'Physiotherapist',
         specialty: 'Orthopaedic & Neurological Rehabilitation',
         experienceYears: 8,
-        verified: true, available: true, feeUGX: 40000,
+        verified: true,
+        available: true,
+        feeUGX: 40000,
         avatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
-        bio: 'Physical therapist focused on post-stroke mobility and in-home therapy.',
-        languages: ['English', 'Luganda'], rating: 4.9, reviewCount: 62
+        bio: 'Licensed Physical Therapist specializing in post-stroke functional recovery, chronic spine & lower back pain relief, joint rehabilitation, and home-based mobility regain for seniors.',
+        languages: ['English', 'Luganda'],
+        rating: 4.9,
+        reviewCount: 62,
+        registrationNumber: 'UPTA-PT-2018-0419',
+        education: 'BSc Physiotherapy (Makerere University College of Health Sciences)',
+        hospitalAffiliation: 'CoRSU Rehabilitation Hospital & VitaNova Physio Clinic',
+        conditionsTreated: [
+          'Post-Stroke Movement Re-education',
+          'Chronic Lower Back Pain & Sciatica',
+          'Post-Fracture Joint Stiffness & Rehab',
+          'Knee Osteoarthritis & Walking Aid Training',
+          'Ergonomic Posture & Workplace Pain Management'
+        ],
+        availabilityHours: 'Mon – Sat: 8:30 AM – 6:00 PM (EAT)',
+        responseSpeed: '< 15 mins average response'
       }
     ];
 
