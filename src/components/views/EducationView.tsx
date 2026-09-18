@@ -103,10 +103,10 @@ export const EducationView: React.FC<EducationViewProps> = ({
           </div>
 
           <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
-            Health Education Talks & Disease Guides
+            Health Talks by Ugandan Doctors
           </h1>
-          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-            Watch certified Ugandan physicians and midwives explain common conditions from root causes and early signs to local prevention and hospital treatments. Download any talk to watch anytime without data.
+          <p className="text-xs text-slate-400 mt-1">
+            Watch. Learn. Download offline.
           </p>
         </div>
       </div>
@@ -243,18 +243,13 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   </div>
                 </div>
 
-                {/* Title & Summary */}
-                <div>
-                  <h3
-                    onClick={() => handleOpenTalk(article)}
-                    className="text-sm sm:text-base font-bold text-white hover:text-teal-300 transition-colors cursor-pointer line-clamp-2 leading-snug break-words"
-                  >
-                    {article.title}
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-2 line-clamp-3 leading-relaxed break-words">
-                    {article.summary}
-                  </p>
-                </div>
+                {/* Title only — no description */}
+                <h3
+                  onClick={() => handleOpenTalk(article)}
+                  className="text-sm sm:text-base font-bold text-white hover:text-teal-300 transition-colors cursor-pointer line-clamp-2 leading-snug break-words"
+                >
+                  {article.title}
+                </h3>
 
                 {/* Quick Outline Chips */}
                 <div className="flex flex-wrap gap-1.5 pt-1">

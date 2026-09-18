@@ -3,15 +3,8 @@ import {
   Video,
   Phone,
   MessageSquare,
-  ShieldCheck,
   WifiOff,
   Send,
-  Mic,
-  MicOff,
-  VideoOff,
-  PhoneOff,
-  Volume2,
-  VolumeX,
   BadgeCheck,
   Star,
   Clock
@@ -34,26 +27,10 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
   networkState,
   onQueueOfflineMessage,
   onInitiatePayment,
-  activeCallClinician: externalCallClinician,
-  callType: externalCallType,
-  onEndCall: externalEndCall,
-  onTriggerCall: externalTriggerCall
+  onTriggerCall
 }) => {
   const [selectedProfession, setSelectedProfession] = useState<string>('all');
   const [activeChatClinician, setActiveChatClinician] = useState<HealthcareWorker | null>(null);
-  const [activeCallClinician, setActiveCallClinician] = useState<HealthcareWorker | null>(null);
-  const [callType, setCallType] = useState<'video' | 'audio'>('video');
-  const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
-  const [callDuration, setCallDuration] = useState<number>(0);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [isVideoOff, setIsVideoOff] = useState<boolean>(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState<boolean>(true);
-
-  useEffect(() => {
-    if (externalCallClinician && externalCallType) {
-      startCall(externalCallClinician, externalCallType);
-    }
-  }, [externalCallClinician, externalCallType]);
 
   const [inboxMessages, setInboxMessages] = useState<Record<string, {
     id: string;
@@ -99,32 +76,11 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
   const [chatDraft, setChatDraft] = useState<string>('');
   const [isSending, setIsSending] = useState<boolean>(false);
 
-  useEffect(() => {
-    let interval: any = null;
-    if (activeCallClinician && callStatus === 'connected') {
-      interval = setInterval(() => {
-        setCallDuration((prev) => prev + 1);
-      }, 1000);
+  // Route call through the real Jitsi VideoCallModal in App.tsx
+  const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
+    if (onTriggerCall) {
+      onTriggerCall(clinician, type);
     }
-    return () => clearInterval(interval);
-  }, [activeCallClinician, callStatus]);
-
-  const startCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
-    setActiveCallClinician(clinician);
-    setCallType(type);
-    setCallStatus('connecting');
-    setCallDuration(0);
-    setIsMuted(false);
-    setIsVideoOff(false);
-    setTimeout(() => setCallStatus('connected'), 1800);
-  };
-
-  const endCall = () => {
-    setCallStatus('ended');
-    setTimeout(() => {
-      setActiveCallClinician(null);
-      if (externalEndCall) externalEndCall();
-    }, 600);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -154,7 +110,12 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
       await onQueueOfflineMessage(clinicianId, text);
     } else {
       setTimeout(() => {
-        const replyText = `Thank you Sarah. I have noted this. Continue your tablets and stay well hydrated.`;
+        let replyText = `Thank you Sarah. I have noted this. Continue your tablets and stay well hydrated.`;
+        if (text.toLowerCase().includes('pressure') || text.toLowerCase().includes('bp')) {
+          replyText = `Your blood pressure trends are stabilizing well. Please log one more reading before bedtime tonight.`;
+        } else if (text.toLowerCase().includes('visit') || text.toLowerCase().includes('come')) {
+          replyText = `I have received your request. Sister Florence or I will confirm your home arrival time shortly.`;
+        }
         const replyMsg = {
           id: 'reply_' + Date.now(),
           sender: 'clinician' as const,
@@ -175,12 +136,6 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
   const filteredClinicians = clinicians.filter(
     (c) => selectedProfession === 'all' || c.profession.toLowerCase() === selectedProfession.toLowerCase()
   );
-
-  const formatCallTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
 
   const professionColors: Record<string, string> = {
     Doctor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
@@ -229,16 +184,15 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
             className={`relative rounded-3xl overflow-hidden border border-slate-800 shadow-xl bg-gradient-to-b ${professionGradients[clinician.profession] || 'from-slate-800 via-slate-900 to-slate-900'}`}
           >
             {/* Large Photo Hero */}
-            <div className="relative w-full h-56 sm:h-64 overflow-hidden">
+            <div className="relative w-full h-60 sm:h-72 overflow-hidden">
               <img
                 src={clinician.avatar}
                 alt={clinician.name}
                 className="w-full h-full object-cover object-top"
               />
-              {/* Gradient overlay from bottom */}
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/30 to-transparent" />
 
-              {/* Top badges on the photo */}
+              {/* Top badges */}
               <div className="absolute top-3 left-3 right-3 flex items-start justify-between">
                 <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border backdrop-blur-sm ${professionColors[clinician.profession] || 'bg-slate-700 text-white border-slate-600'}`}>
                   {clinician.profession}
@@ -257,18 +211,18 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                 </div>
               </div>
 
-              {/* Name & specialty overlaid on bottom of photo */}
+              {/* Name & specialty on photo */}
               <div className="absolute bottom-0 left-0 right-0 p-4">
-                <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight leading-tight">
+                <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight leading-tight">
                   {clinician.name}
                 </h2>
-                <p className="text-xs sm:text-sm text-teal-300 font-medium mt-0.5">
+                <p className="text-sm text-teal-300 font-medium mt-0.5">
                   {clinician.specialty}
                 </p>
               </div>
             </div>
 
-            {/* Card Body: Key Stats + Conditions + Actions */}
+            {/* Card Body */}
             <div className="p-4 space-y-4">
               {/* Stats Row */}
               <div className="flex items-center justify-between text-xs">
@@ -279,13 +233,13 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                 </div>
                 <div className="flex items-center space-x-1 text-slate-300">
                   <Clock className="w-3.5 h-3.5 text-slate-500" />
-                  <span>{clinician.experienceYears} yrs</span>
+                  <span>{clinician.experienceYears} yrs exp</span>
                 </div>
-                <div className="flex items-center space-x-1 text-slate-300">
-                  <span className="text-slate-500">Speaks:</span>
-                  <span className="font-medium">{clinician.languages.slice(0, 2).join(', ')}</span>
+                <div className="flex items-center space-x-1 text-slate-300 truncate max-w-[30%]">
+                  <span className="text-slate-500 shrink-0">Speaks:</span>
+                  <span className="font-medium truncate">{clinician.languages.slice(0, 2).join(', ')}</span>
                 </div>
-                <div className="bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
+                <div className="bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 shrink-0">
                   <span className="text-white font-bold text-xs">UGX {clinician.feeUGX.toLocaleString()}</span>
                 </div>
               </div>
@@ -309,11 +263,11 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                 </div>
               )}
 
-              {/* 3-Action Bar */}
+              {/* 3-Action Bar — calls route to real Jitsi VideoCallModal */}
               <div className="grid grid-cols-3 gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => startCall(clinician, 'video')}
+                  onClick={() => handleStartCall(clinician, 'video')}
                   className="py-3 rounded-2xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs flex flex-col items-center justify-center space-y-1 shadow-lg shadow-teal-500/20 transition-transform active:scale-95"
                 >
                   <Video className="w-4 h-4" />
@@ -322,7 +276,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => startCall(clinician, 'audio')}
+                  onClick={() => handleStartCall(clinician, 'audio')}
                   className="py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs flex flex-col items-center justify-center space-y-1 border border-slate-700 transition-colors"
                 >
                   <Phone className="w-4 h-4 text-teal-400" />
@@ -349,7 +303,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
       {activeChatClinician && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-3xl w-full max-w-lg flex flex-col h-[85vh] sm:h-[620px] max-h-[92vh] overflow-hidden shadow-2xl">
-            {/* Chat Header */}
+            {/* Chat Header with photo background */}
             <div className="relative h-24 overflow-hidden shrink-0">
               <img
                 src={activeChatClinician.avatar}
@@ -373,17 +327,20 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
+                  {/* These buttons open the REAL Jitsi call */}
                   <button
                     type="button"
-                    onClick={() => startCall(activeChatClinician, 'video')}
+                    onClick={() => { handleStartCall(activeChatClinician, 'video'); setActiveChatClinician(null); }}
                     className="p-2 rounded-xl bg-teal-500/20 hover:bg-teal-500 text-teal-300 hover:text-slate-950 transition-colors border border-teal-500/30"
+                    title="Start Video Call"
                   >
                     <Video className="w-4 h-4" />
                   </button>
                   <button
                     type="button"
-                    onClick={() => startCall(activeChatClinician, 'audio')}
+                    onClick={() => { handleStartCall(activeChatClinician, 'audio'); setActiveChatClinician(null); }}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 transition-colors border border-slate-700"
+                    title="Start Voice Call"
                   >
                     <Phone className="w-4 h-4" />
                   </button>
@@ -433,7 +390,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
               ))}
             </div>
 
-            {/* Input */}
+            {/* Chat Input */}
             <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-800 bg-slate-900 flex items-center space-x-2 shrink-0">
               <input
                 type="text"
@@ -450,170 +407,6 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                 <Send className="w-4 h-4" />
               </button>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* VIDEO CALL                                                   */}
-      {/* ============================================================ */}
-      {activeCallClinician && callType === 'video' && (
-        <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col select-none">
-          {/* Doctor Video Feed — Full Height */}
-          <div className="flex-1 relative overflow-hidden">
-            {callStatus === 'connecting' ? (
-              <div className="w-full h-full flex flex-col items-center justify-center space-y-6 bg-slate-900">
-                <div className="relative w-32 h-32">
-                  <div className="absolute inset-0 rounded-full border-4 border-teal-500/30 animate-ping" />
-                  <img
-                    src={activeCallClinician.avatar}
-                    alt={activeCallClinician.name}
-                    className="w-32 h-32 rounded-full object-cover border-4 border-teal-400"
-                  />
-                </div>
-                <div className="text-center">
-                  <h4 className="text-xl font-bold text-white">Calling {activeCallClinician.name}…</h4>
-                  <p className="text-sm text-teal-300 mt-1">VitaNova Encrypted Telehealth</p>
-                </div>
-              </div>
-            ) : (
-              <>
-                <img
-                  src={activeCallClinician.avatar}
-                  alt={activeCallClinician.name}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent" />
-
-                {/* Clinician label */}
-                <div className="absolute bottom-32 left-4 bg-slate-900/80 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-slate-700 text-sm text-white flex items-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>{activeCallClinician.name}</span>
-                </div>
-
-                {/* PiP Self Camera */}
-                <div className="absolute top-4 right-4 w-24 h-32 sm:w-32 sm:h-44 bg-slate-800 rounded-2xl overflow-hidden border-2 border-teal-500/50 shadow-xl">
-                  {isVideoOff ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs">
-                      <VideoOff className="w-5 h-5 mb-1" />
-                      <span>Camera Off</span>
-                    </div>
-                  ) : (
-                    <img
-                      src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80"
-                      alt="You"
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-                  <span className="absolute bottom-1.5 left-2 text-[10px] font-bold text-white/80">You</span>
-                </div>
-              </>
-            )}
-
-            {/* Top Bar */}
-            <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4">
-              <div className="bg-slate-900/80 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-slate-700">
-                <span className="text-xs font-mono text-emerald-400 font-bold">{formatCallTime(callDuration)}</span>
-              </div>
-              <span className="bg-teal-500/20 text-teal-300 text-[11px] font-semibold px-3 py-1.5 rounded-xl border border-teal-500/30 backdrop-blur-sm">
-                HD Telehealth
-              </span>
-            </div>
-          </div>
-
-          {/* Controls */}
-          <div className="bg-slate-950 p-5 flex items-center justify-center space-x-4">
-            <button
-              onClick={() => setIsMuted(!isMuted)}
-              className={`p-4 rounded-2xl border transition-colors ${isMuted ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-slate-800 text-white border-slate-700'}`}
-            >
-              {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-            </button>
-            <button
-              onClick={endCall}
-              className="p-5 rounded-3xl bg-red-600 hover:bg-red-500 text-white shadow-xl shadow-red-600/30 transition-all active:scale-95"
-            >
-              <PhoneOff className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setIsVideoOff(!isVideoOff)}
-              className={`p-4 rounded-2xl border transition-colors ${isVideoOff ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-slate-800 text-white border-slate-700'}`}
-            >
-              {isVideoOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* AUDIO CALL                                                   */}
-      {/* ============================================================ */}
-      {activeCallClinician && callType === 'audio' && (
-        <div className="fixed inset-0 z-50 flex flex-col select-none">
-          {/* Large Photo Background */}
-          <div className="absolute inset-0">
-            <img
-              src={activeCallClinician.avatar}
-              alt={activeCallClinician.name}
-              className="w-full h-full object-cover filter brightness-30"
-            />
-            <div className="absolute inset-0 bg-slate-950/85" />
-          </div>
-
-          <div className="relative z-10 flex flex-col items-center justify-between h-full p-8 pt-16 pb-12">
-            {/* Top Info */}
-            <div className="text-center space-y-1">
-              <span className="text-xs font-semibold text-teal-400 uppercase tracking-widest">Voice Call</span>
-              <h3 className="text-2xl font-bold text-white">{activeCallClinician.name}</h3>
-              <p className="text-sm text-slate-300">{activeCallClinician.specialty}</p>
-            </div>
-
-            {/* Avatar with pulse rings */}
-            <div className="relative">
-              {callStatus === 'connected' && (
-                <>
-                  <div className="absolute -inset-8 rounded-full bg-teal-500/10 animate-ping" />
-                  <div className="absolute -inset-4 rounded-full bg-teal-500/15 animate-pulse" />
-                </>
-              )}
-              <div className="relative w-44 h-44 rounded-full overflow-hidden border-4 border-teal-400 shadow-2xl shadow-teal-500/20">
-                <img
-                  src={activeCallClinician.avatar}
-                  alt={activeCallClinician.name}
-                  className="w-full h-full object-cover object-top"
-                />
-              </div>
-            </div>
-
-            {/* Status & Timer */}
-            <div className="text-center space-y-2">
-              <p className="text-base font-semibold text-white">
-                {callStatus === 'connecting' ? 'Ringing…' : 'Connected · HD Audio'}
-              </p>
-              <p className="text-3xl font-mono font-bold text-teal-400">{formatCallTime(callDuration)}</p>
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center justify-center space-x-5">
-              <button
-                onClick={() => setIsMuted(!isMuted)}
-                className={`p-4 rounded-2xl border transition-colors ${isMuted ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-white/10 text-white border-white/20'}`}
-              >
-                {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-              </button>
-              <button
-                onClick={endCall}
-                className="p-5 rounded-3xl bg-red-600 hover:bg-red-500 text-white shadow-xl shadow-red-600/30 transition-all active:scale-95"
-              >
-                <PhoneOff className="w-6 h-6" />
-              </button>
-              <button
-                onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-                className={`p-4 rounded-2xl border transition-colors ${isSpeakerOn ? 'bg-teal-500/20 text-teal-300 border-teal-500/40' : 'bg-white/10 text-white border-white/20'}`}
-              >
-                {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-              </button>
-            </div>
           </div>
         </div>
       )}

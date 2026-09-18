@@ -313,12 +313,31 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
       });
   }, [allRecords, selectedCategory, selectedDoctor, searchQuery, sortOrder]);
 
-  // Month grouping helper for timeline
+  // ── Ugandan date format: DD/MM/YYYY (standard in Uganda MOH records)
+  const formatUgDate = (iso: string): string => {
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  };
+
+  const formatUgDateTime = (iso: string): string => {
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} at ${hh}:${min}`;
+  };
+
+  // Month grouping helper for timeline — grouped by Month/Year in Ugandan context
   const groupedByMonth = useMemo(() => {
     const groups: { [key: string]: MedicalRecordEntry[] } = {};
     filteredRecords.forEach((rec) => {
       const d = new Date(rec.timestamp);
-      const key = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      const key = d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
       if (!groups[key]) groups[key] = [];
       groups[key].push(rec);
     });
@@ -366,7 +385,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
   };
 
   const handleCopyNotes = (rec: MedicalRecordEntry) => {
-    const text = `[VitaNova Clinic EMR]\nDate: ${new Date(rec.timestamp).toLocaleDateString()}\nCategory: ${rec.category.toUpperCase()}\nTitle: ${rec.title}\nClinician: ${rec.doctorName} (${rec.doctorRole})\nFacility: ${rec.clinicBranch}\n\nClinical Summary:\n${rec.description}\n\nVerified Cryptographic Seal: ${rec.auditTrail.author}`;
+    const text = `[VitaNova Clinic — Electronic Medical Record]\nDate: ${formatUgDateTime(rec.timestamp)}\nCategory: ${rec.category.toUpperCase()}\nTitle: ${rec.title}\nClinician: ${rec.doctorName} (${rec.doctorRole})\nFacility: ${rec.clinicBranch}\n\nClinical Summary:\n${rec.description}\n\nAudit: ${rec.auditTrail.author}\nRecord created: ${formatUgDateTime(rec.auditTrail.createdAt)}`;
     navigator.clipboard.writeText(text);
     setCopyFeedbackId(rec.id);
     setTimeout(() => setCopyFeedbackId(null), 2500);
@@ -782,12 +801,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
                               <span>{entry.clinicBranch}</span>
                               <span>•</span>
                               <span className="text-slate-300 font-medium">
-                                {new Date(entry.timestamp).toLocaleDateString([], {
-                                  weekday: 'short',
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric'
-                                })}
+                                {formatUgDate(entry.timestamp)}
                               </span>
                             </div>
                           </div>
@@ -895,7 +909,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
                         <div className="flex items-center space-x-2">
                           <h4 className="text-sm font-bold text-white">{entry.title}</h4>
                           <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
-                            {new Date(entry.timestamp).toLocaleDateString()}
+                            {formatUgDate(entry.timestamp)}
                           </span>
                         </div>
                         <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
@@ -947,11 +961,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
                   return (
                     <tr key={entry.id} className="hover:bg-slate-800/40 transition-colors">
                       <td className="py-3 px-4 whitespace-nowrap text-slate-300 font-medium">
-                        {new Date(entry.timestamp).toLocaleDateString([], {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}
+                        {formatUgDate(entry.timestamp)}
                       </td>
                       <td className="py-3 px-3 whitespace-nowrap">
                         <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md font-bold text-[10px] ${theme.badge}`}>
@@ -1034,7 +1044,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
                 <div className="text-left sm:text-right text-[10px] text-slate-400 font-mono">
                   <p className="font-bold text-white">OFFICIAL MEDICAL REPORT</p>
                   <p>Ref: {selectedDocRecord.id.toUpperCase()}</p>
-                  <p>Date: {new Date(selectedDocRecord.timestamp).toLocaleDateString()}</p>
+                  <p>Date: {formatUgDate(selectedDocRecord.timestamp)}</p>
                   <p className="text-emerald-400">Verified Electronic Record</p>
                 </div>
               </div>
@@ -1139,7 +1149,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
                   <p className="text-[11px] text-slate-400">Generated for: {patient.fullName} (ID: {patient.id})</p>
                 </div>
                 <div className="text-right text-[10px] text-slate-400 font-mono">
-                  <p>Issue Date: {new Date().toLocaleDateString()}</p>
+                  <p>Issue Date: {formatUgDate(new Date().toISOString())}</p>
                   <p className="text-emerald-400 font-bold">Status: Active & Insured</p>
                 </div>
               </div>
@@ -1163,7 +1173,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
                     <div key={r.id} className="py-3 space-y-1">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-white">{r.title}</span>
-                        <span className="text-slate-400 text-[10px]">{new Date(r.timestamp).toLocaleDateString()}</span>
+                        <span className="text-slate-400 text-[10px]">{formatUgDate(r.timestamp)}</span>
                       </div>
                       <p className="text-xs text-slate-300">{r.description}</p>
                       <p className="text-[10px] text-teal-400 font-mono">
