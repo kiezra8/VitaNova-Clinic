@@ -75,10 +75,10 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
     },
     {
       id: 'education',
-      badge: 'Uganda Clinical Guidelines (UCG)',
-      title: 'Clinical Guideline Videos',
-      subtitle: 'Watch animated MoH clinical treatment videos',
-      image: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=1200&q=90',
+      badge: 'Diseases Known to Mankind',
+      title: 'AI Medical Video Library',
+      subtitle: 'Genesis of our journey — Narrated by K.I Ezra',
+      image: '/genesis_thumb.jpg',
       tab: 'education' as NavTab,
       accent: 'from-blue-600/80 to-transparent'
     },

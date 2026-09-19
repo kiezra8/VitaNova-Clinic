@@ -6,6 +6,7 @@ import {
   RotateCw,
   Volume2,
   VolumeX,
+  Volume1,
   Maximize2,
   Minimize2,
   Search,
@@ -18,17 +19,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Activity,
-  FileText,
   AlertTriangle,
   X,
   Radio,
+  FileText,
   SlidersHorizontal,
-  Bookmark,
-  Heart,
-  Volume1
+  Layers
 } from 'lucide-react';
 import { HealthEducationArticle } from '../../types';
-import { UCG_DISEASE_VIDEOS, UCGVideoItem } from '../../data/ucgVideos';
+import { DISEASE_VIDEOS, DiseaseVideoItem } from '../../data/diseaseVideos';
 
 interface EducationViewProps {
   articles?: HealthEducationArticle[];
@@ -42,74 +41,75 @@ export const EducationView: React.FC<EducationViewProps> = ({
   // Navigation & Filtering
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedVideo, setSelectedVideo] = useState<UCGVideoItem | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<DiseaseVideoItem | null>(null);
 
   // Video Player Controls State
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [volume, setVolume] = useState<number>(0.9);
+  const [volume, setVolume] = useState<number>(1.0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
+  const [videoDurationSec, setVideoDurationSec] = useState<number>(76);
   const [isLiked, setIsLiked] = useState<boolean>(false);
-  const [likeCount, setLikeCount] = useState<number>(4820);
+  const [likeCount, setLikeCount] = useState<number>(5420);
   const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState<boolean>(false);
+  const [showSlideOverlay, setShowSlideOverlay] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [flashAction, setFlashAction] = useState<string | null>(null);
-  const [speechBlocked, setSpeechBlocked] = useState<boolean>(false);
   const [nextVideoCountdown, setNextVideoCountdown] = useState<number | null>(null);
 
   // Refs
   const playerContainerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const bgImageRef = useRef<HTMLImageElement | null>(null);
-  const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Interactive Comments
   const [userComment, setUserComment] = useState<string>('');
   const [commentsList, setCommentsList] = useState<Array<{ author: string; role: string; text: string; time: string }>>([
     {
-      author: 'Dr. Sarah Nabirye (Mbarara Regional Referral)',
-      role: 'Medical Officer',
-      text: 'The IV Artesunate dilution protocol explained in this video matches our daily ward practice at Mbarara. Crucial reminder on checking blood glucose first.',
-      time: '2 days ago'
+      author: 'Dr. Sarah Nabirye',
+      role: 'Consultant Physician',
+      text: 'The overview and presentation in this video capture the exact clinical pathology. Great reference for continuous medical learning.',
+      time: '1 day ago'
     },
     {
-      author: 'Sister Grace Auma (Gulu Regional Referral Hospital)',
+      author: 'Kato Ronald',
+      role: 'Medical Student',
+      text: 'The Genesis of our journey narration makes the understanding of complex medical conditions so clear and inspiring.',
+      time: '3 days ago'
+    },
+    {
+      author: 'Sister Grace Auma',
       role: 'Clinical Officer',
-      text: 'Very clear explanation of the dosage adjustments. We use this exact UCG 2023 algorithm for all severe admissions.',
+      text: 'Every healthcare practitioner should watch this comprehensive breakdown. Very helpful diagnostic flow.',
       time: '5 days ago'
-    },
-    {
-      author: 'Kato Ronald (Kampala)',
-      role: 'Patient / Caregiver',
-      text: 'Thank you for breaking down the danger signs. This helped us know when to take my mother to hospital without delay.',
-      time: '1 week ago'
     }
   ]);
 
-  // YouTube Category Filter Chips
+  // 15 Comprehensive Categories for "Diseases Known to Mankind"
   const categories = [
     'All',
     'Infectious Diseases',
-    'Cardiovascular',
-    'Endocrine & Diabetes',
-    'Respiratory',
-    'Obstetrics & Maternal',
-    'Childhood Illness & SAM',
-    'Gastrointestinal & Hepatic',
-    'Renal & Urinary',
-    'Blood & Sickle Cell',
-    'Emergencies & Trauma',
-    'Musculoskeletal'
+    'Cardiovascular Diseases',
+    'Respiratory Diseases',
+    'Endocrine and Metabolic Diseases',
+    'Cancers',
+    'Neurological Diseases',
+    'Mental Health Conditions',
+    'Gastrointestinal Diseases',
+    'Musculoskeletal Diseases',
+    'Renal and Urinary Diseases',
+    'Genetic and Congenital Disorders',
+    'Skin Diseases',
+    'Eye and Ear Diseases',
+    'Autoimmune Diseases',
+    'Nutritional Deficiency Diseases'
   ];
 
-  // Filtered Video Library
+  // Filtered Video Library across all 213 diseases
   const filteredVideos = useMemo(() => {
-    return UCG_DISEASE_VIDEOS.filter((vid) => {
+    return DISEASE_VIDEOS.filter((vid) => {
       const matchesCategory = selectedCategory === 'All' || vid.category === selectedCategory;
       if (!searchQuery.trim()) return matchesCategory;
 
@@ -117,99 +117,22 @@ export const EducationView: React.FC<EducationViewProps> = ({
       const matchesSearch =
         vid.title.toLowerCase().includes(q) ||
         vid.diseaseName.toLowerCase().includes(q) ||
+        vid.category.toLowerCase().includes(q) ||
         vid.summary.toLowerCase().includes(q) ||
-        vid.speakerName.toLowerCase().includes(q) ||
         vid.clinicalGuideline.firstLineMedicines.some((med) => med.toLowerCase().includes(q));
 
       return matchesCategory && matchesSearch;
     });
   }, [selectedCategory, searchQuery]);
 
-  // Trigger visual feedback flash icon (Play/Pause/+10/-10)
+  // Trigger brief visual feedback icon
   const triggerFlash = (action: string) => {
     setFlashAction(action);
-    setTimeout(() => setFlashAction(null), 600);
+    setTimeout(() => setFlashAction(null), 500);
   };
 
-  // ══════════════════════════════════════════════════════════════════════
-  // SPEECH SYNTHESIS ENGINE (REAL CLINICAL DOCTOR VOICE)
-  // ══════════════════════════════════════════════════════════════════════
-  const speakCurrentSlide = useCallback(
-    (slideIdx: number) => {
-      if (!selectedVideo) return;
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
-      const synth = window.speechSynthesis;
-      synth.cancel();
-
-      if (isMuted || !isPlaying) return;
-
-      const slide = selectedVideo.videoSlides[slideIdx] || selectedVideo.videoSlides[0];
-      if (!slide) return;
-
-      // Construct spoken clinical text
-      const narrationText = `Section ${slideIdx + 1}: ${slide.title}. ${slide.keyPoints.join('. ')}. Protocol from the Uganda Clinical Guidelines 2023.`;
-
-      const utterance = new SpeechSynthesisUtterance(narrationText);
-      utterance.rate = Math.max(0.8, Math.min(1.8, playbackSpeed * 0.95));
-      utterance.pitch = 1.0;
-      utterance.volume = volume;
-
-      // Pick clear English voice if available
-      const voices = synth.getVoices();
-      const preferredVoice =
-        voices.find((v) => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Online'))) ||
-        voices.find((v) => v.lang.startsWith('en')) ||
-        voices[0];
-
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
-
-      utterance.onerror = (e) => {
-        if (e.error === 'not-allowed') {
-          setSpeechBlocked(true);
-        }
-      };
-
-      utterance.onstart = () => {
-        setSpeechBlocked(false);
-      };
-
-      speechUtteranceRef.current = utterance;
-      synth.speak(utterance);
-    },
-    [selectedVideo, isMuted, isPlaying, playbackSpeed, volume]
-  );
-
-  // Subtle telemetry pulse tone
-  const playPulseBeep = useCallback(() => {
-    if (isMuted || !isPlaying || typeof window === 'undefined') return;
-    try {
-      if (!audioCtxRef.current) {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioCtx) audioCtxRef.current = new AudioCtx();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx && ctx.state === 'running') {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.setValueAtTime(0.015 * volume, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.08);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.08);
-      }
-    } catch {
-      // AudioContext policy handled gracefully
-    }
-  }, [isMuted, isPlaying, volume]);
-
   // Handle Video Selection (Open YouTube Watch Page)
-  const handleSelectVideo = (video: UCGVideoItem) => {
+  const handleSelectVideo = (video: DiseaseVideoItem) => {
     setSelectedVideo(video);
     setIsPlaying(true);
     setCurrentSlideIndex(0);
@@ -218,75 +141,126 @@ export const EducationView: React.FC<EducationViewProps> = ({
     setNextVideoCountdown(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     triggerFlash('play');
+
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(() => {
+        // Handled if browser requires manual gesture
+      });
+    }
   };
 
   // Toggle Play / Pause
   const togglePlayPause = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      if (isPlaying) {
-        window.speechSynthesis.pause();
-        triggerFlash('pause');
-      } else {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        } else {
-          speakCurrentSlide(currentSlideIndex);
-        }
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+      triggerFlash('pause');
+    } else {
+      videoRef.current.play().then(() => {
+        setIsPlaying(true);
         triggerFlash('play');
-      }
+      }).catch(() => {
+        setIsPlaying(false);
+      });
     }
-    setIsPlaying(!isPlaying);
   };
 
-  // Handle slide jump or scrub
+  // Synchronize playback speed
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed]);
+
+  // Synchronize volume and mute
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = volume;
+      videoRef.current.muted = isMuted;
+    }
+  }, [volume, isMuted]);
+
+  // Time update from native video element
+  const handleTimeUpdate = () => {
+    if (!videoRef.current || !selectedVideo) return;
+    const current = videoRef.current.currentTime;
+    setCurrentTimeSec(Math.floor(current));
+
+    if (videoRef.current.duration && !isNaN(videoRef.current.duration)) {
+      setVideoDurationSec(Math.floor(videoRef.current.duration));
+    }
+
+    // Sync slide index with video progress
+    const slidesCount = selectedVideo.videoSlides.length;
+    if (slidesCount > 0 && videoDurationSec > 0) {
+      const slideDuration = videoDurationSec / slidesCount;
+      const newIdx = Math.min(slidesCount - 1, Math.floor(current / slideDuration));
+      if (newIdx !== currentSlideIndex) {
+        setCurrentSlideIndex(newIdx);
+      }
+    }
+  };
+
+  // Seek video
   const seekToTime = (targetSec: number) => {
-    if (!selectedVideo) return;
-    const clamped = Math.max(0, Math.min(selectedVideo.durationSeconds, targetSec));
+    if (!videoRef.current || !selectedVideo) return;
+    const maxDuration = videoDurationSec || selectedVideo.durationSeconds;
+    const clamped = Math.max(0, Math.min(maxDuration, targetSec));
+    videoRef.current.currentTime = clamped;
     setCurrentTimeSec(clamped);
 
     const slidesCount = selectedVideo.videoSlides.length;
     if (slidesCount > 0) {
-      const slideDuration = selectedVideo.durationSeconds / slidesCount;
+      const slideDuration = maxDuration / slidesCount;
       const newIdx = Math.min(slidesCount - 1, Math.floor(clamped / slideDuration));
-      if (newIdx !== currentSlideIndex) {
-        setCurrentSlideIndex(newIdx);
-        speakCurrentSlide(newIdx);
-      }
+      setCurrentSlideIndex(newIdx);
     }
   };
 
-  // Handle Seek in video progress bar
+  // Click on Scrubber Bar
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!selectedVideo) return;
+    const maxDuration = videoDurationSec || selectedVideo.durationSeconds;
     const rect = e.currentTarget.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetSec = Math.floor(pos * selectedVideo.durationSeconds);
+    const targetSec = Math.floor(pos * maxDuration);
     seekToTime(targetSec);
     triggerFlash('seek');
   };
 
-  // Speed toggle (0.75x -> 1x -> 1.25x -> 1.5x -> 2x)
+  // Video Ended Handler
+  const handleVideoEnded = () => {
+    setIsPlaying(false);
+    setNextVideoCountdown(5);
+  };
+
+  // Autoplay next video countdown
+  useEffect(() => {
+    if (nextVideoCountdown === null || nextVideoCountdown <= 0) return;
+    const countTimer = setTimeout(() => {
+      if (nextVideoCountdown === 1 && selectedVideo) {
+        const currentIndex = DISEASE_VIDEOS.findIndex((v) => v.id === selectedVideo.id);
+        const nextVideo = DISEASE_VIDEOS[(currentIndex + 1) % DISEASE_VIDEOS.length];
+        handleSelectVideo(nextVideo);
+      } else {
+        setNextVideoCountdown(nextVideoCountdown - 1);
+      }
+    }, 1000);
+    return () => clearTimeout(countTimer);
+  }, [nextVideoCountdown, selectedVideo]);
+
+  // Speed toggle
   const handleCycleSpeed = () => {
     const speeds = [0.75, 1, 1.25, 1.5, 2];
     const nextIndex = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
-    const nextSpeed = speeds[nextIndex];
-    setPlaybackSpeed(nextSpeed);
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window && isPlaying) {
-      speakCurrentSlide(currentSlideIndex);
-    }
+    setPlaybackSpeed(speeds[nextIndex]);
   };
 
   // Toggle Mute
   const handleToggleMute = () => {
-    const nextMute = !isMuted;
-    setIsMuted(nextMute);
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      if (nextMute) {
-        window.speechSynthesis.cancel();
-      } else {
-        speakCurrentSlide(currentSlideIndex);
-      }
-    }
+    setIsMuted(!isMuted);
   };
 
   // Like button
@@ -308,7 +282,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
     setCommentsList((prev) => [
       {
         author: 'Sarah Namubiru (Patient)',
-        role: 'Verified Patient',
+        role: 'Verified Member',
         text: userComment.trim(),
         time: 'Just now'
       },
@@ -316,223 +290,6 @@ export const EducationView: React.FC<EducationViewProps> = ({
     ]);
     setUserComment('');
   };
-
-  // Timer: progress through the video
-  useEffect(() => {
-    let timer: ReturnType<typeof setInterval>;
-    if (selectedVideo && isPlaying) {
-      timer = setInterval(() => {
-        setCurrentTimeSec((prev) => {
-          const next = prev + playbackSpeed;
-          if (next >= selectedVideo.durationSeconds) {
-            // Video ended: start next video countdown
-            setIsPlaying(false);
-            setNextVideoCountdown(5);
-            return selectedVideo.durationSeconds;
-          }
-
-          // Advance slide automatically according to time
-          const slidesCount = selectedVideo.videoSlides.length;
-          if (slidesCount > 0) {
-            const slideDuration = selectedVideo.durationSeconds / slidesCount;
-            const newIndex = Math.min(slidesCount - 1, Math.floor(next / slideDuration));
-            if (newIndex !== currentSlideIndex) {
-              setCurrentSlideIndex(newIndex);
-              speakCurrentSlide(newIndex);
-            }
-          }
-          return next;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [selectedVideo, isPlaying, playbackSpeed, currentSlideIndex, speakCurrentSlide]);
-
-  // Autoplay next video countdown
-  useEffect(() => {
-    if (nextVideoCountdown === null || nextVideoCountdown <= 0) return;
-    const countTimer = setTimeout(() => {
-      if (nextVideoCountdown === 1 && selectedVideo) {
-        // Find next video in list
-        const currentIndex = UCG_DISEASE_VIDEOS.findIndex((v) => v.id === selectedVideo.id);
-        const nextVideo = UCG_DISEASE_VIDEOS[(currentIndex + 1) % UCG_DISEASE_VIDEOS.length];
-        handleSelectVideo(nextVideo);
-      } else {
-        setNextVideoCountdown(nextVideoCountdown - 1);
-      }
-    }, 1000);
-    return () => clearTimeout(countTimer);
-  }, [nextVideoCountdown, selectedVideo]);
-
-  // Initialize Speech when video changes or user starts playback
-  useEffect(() => {
-    if (selectedVideo && isPlaying && !isMuted) {
-      speakCurrentSlide(currentSlideIndex);
-    }
-    return () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, [selectedVideo?.id, isPlaying, isMuted, speakCurrentSlide, currentSlideIndex]);
-
-  // Preload background image for canvas
-  useEffect(() => {
-    if (selectedVideo) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = selectedVideo.videoThumbnail;
-      img.onload = () => {
-        bgImageRef.current = img;
-      };
-    }
-  }, [selectedVideo?.id]);
-
-  // ══════════════════════════════════════════════════════════════════════
-  // DYNAMIC 60FPS VIDEO CANVAS ANIMATION LOOP
-  // ══════════════════════════════════════════════════════════════════════
-  useEffect(() => {
-    if (!selectedVideo) return;
-
-    let frameCount = 0;
-    let ecgX = 0;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let isSubscribedLoop = true;
-
-    const render = () => {
-      if (!isSubscribedLoop || !canvas) return;
-
-      const width = (canvas.width = canvas.parentElement?.clientWidth || 1280);
-      const height = (canvas.height = canvas.parentElement?.clientHeight || 720);
-
-      frameCount++;
-
-      // 1. Draw Background Image with Subtle Ken Burns Pan/Zoom
-      if (bgImageRef.current && bgImageRef.current.complete) {
-        const zoom = 1 + Math.sin(frameCount * 0.002) * 0.05;
-        const panX = Math.sin(frameCount * 0.001) * 20;
-        const panY = Math.cos(frameCount * 0.001) * 15;
-
-        ctx.save();
-        ctx.translate(width / 2, height / 2);
-        ctx.scale(zoom, zoom);
-        ctx.translate(-width / 2 + panX, -height / 2 + panY);
-        ctx.drawImage(bgImageRef.current, 0, 0, width, height);
-        ctx.restore();
-      } else {
-        // Fallback clinical gradient
-        const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-        bgGrad.addColorStop(0, '#020617');
-        bgGrad.addColorStop(1, '#0f172a');
-        ctx.fillStyle = bgGrad;
-        ctx.fillRect(0, 0, width, height);
-      }
-
-      // 2. Cinematic Dimmed Overlay
-      const overlayGrad = ctx.createLinearGradient(0, 0, 0, height);
-      overlayGrad.addColorStop(0, 'rgba(2, 6, 23, 0.75)');
-      overlayGrad.addColorStop(0.5, 'rgba(2, 6, 23, 0.5)');
-      overlayGrad.addColorStop(1, 'rgba(2, 6, 23, 0.92)');
-      ctx.fillStyle = overlayGrad;
-      ctx.fillRect(0, 0, width, height);
-
-      // 3. Floating Clinical Ambient Light Particles
-      for (let i = 0; i < 15; i++) {
-        const pX = ((i * 123 + frameCount * 0.8) % width);
-        const pY = ((i * 87 + Math.sin(frameCount * 0.02 + i) * 30 + height * 0.3) % height);
-        const pSize = (i % 3) + 1;
-        ctx.beginPath();
-        ctx.arc(pX, pY, pSize, 0, Math.PI * 2);
-        ctx.fillStyle = i % 2 === 0 ? 'rgba(45, 212, 191, 0.15)' : 'rgba(56, 189, 248, 0.12)';
-        ctx.fill();
-      }
-
-      // 4. Real-time ECG Heart Monitor Telemetry Wave across the lower canvas
-      const ecgY = height - 65;
-      const speed = isPlaying ? 2.8 * playbackSpeed : 0;
-      ecgX = (ecgX + speed) % width;
-
-      // Draw ECG Grid Baseline
-      ctx.strokeStyle = 'rgba(45, 212, 191, 0.1)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, ecgY);
-      ctx.lineTo(width, ecgY);
-      ctx.stroke();
-
-      // Sweeping ECG P-Q-R-S-T Signal
-      ctx.save();
-      ctx.shadowColor = '#2dd4bf';
-      ctx.shadowBlur = 8;
-      ctx.strokeStyle = '#2dd4bf';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-
-      const waveSpan = 180;
-      for (let x = 0; x < width; x += 3) {
-        const offset = (x - ecgX + width) % waveSpan;
-        let y = ecgY;
-
-        // Cardiac cycle formula
-        if (offset > 20 && offset < 40) {
-          // P-Wave
-          y -= Math.sin(((offset - 20) / 20) * Math.PI) * 7;
-        } else if (offset >= 45 && offset < 52) {
-          // Q-Dip
-          y += ((offset - 45) / 7) * 8;
-        } else if (offset >= 52 && offset < 62) {
-          // R-Spike (Peak)
-          const prog = (offset - 52) / 10;
-          y -= prog < 0.5 ? prog * 70 : (1 - prog) * 70;
-          if (offset === 55 && isPlaying && frameCount % 60 === 0) {
-            playPulseBeep();
-          }
-        } else if (offset >= 62 && offset < 70) {
-          // S-Dip
-          y += Math.sin(((offset - 62) / 8) * Math.PI) * 12;
-        } else if (offset >= 90 && offset < 130) {
-          // T-Wave
-          y -= Math.sin(((offset - 90) / 40) * Math.PI) * 14;
-        }
-
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-      ctx.restore();
-
-      // Sweeping Beam Cursor
-      ctx.fillStyle = '#a7f3d0';
-      ctx.beginPath();
-      ctx.arc(ecgX, ecgY, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 5. Active Dynamic Audio Equalizer Bars (Top Right Canvas)
-      const numBars = 18;
-      const eqStartX = width - 180;
-      const eqY = 40;
-      for (let b = 0; b < numBars; b++) {
-        const barHeight = isPlaying && !isMuted
-          ? Math.abs(Math.sin(frameCount * 0.08 + b * 0.5)) * 22 + 4
-          : 3;
-        ctx.fillStyle = isPlaying ? '#38bdf8' : '#64748b';
-        ctx.fillRect(eqStartX + b * 7, eqY - barHeight, 4, barHeight);
-      }
-
-      animationFrameRef.current = requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      isSubscribedLoop = false;
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    };
-  }, [selectedVideo, isPlaying, playbackSpeed, isMuted, playPulseBeep]);
 
   // Keyboard Shortcuts (Space: Play/Pause, Arrows: Seek, M: Mute, F: Fullscreen)
   useEffect(() => {
@@ -545,10 +302,10 @@ export const EducationView: React.FC<EducationViewProps> = ({
         togglePlayPause();
       } else if (e.code === 'ArrowLeft') {
         e.preventDefault();
-        seekToTime(currentTimeSec - 10);
+        seekToTime(currentTimeSec - 5);
       } else if (e.code === 'ArrowRight') {
         e.preventDefault();
-        seekToTime(currentTimeSec + 10);
+        seekToTime(currentTimeSec + 5);
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
         handleToggleMute();
@@ -576,15 +333,13 @@ export const EducationView: React.FC<EducationViewProps> = ({
   };
 
   // ══════════════════════════════════════════════════════════════════════
-  // VIEW 1: YOUTUBE THEATER / WATCH PLAYER VIEW (WHEN VIDEO SELECTED)
+  // VIEW 1: YOUTUBE WATCH / THEATER PLAYER (WHEN A VIDEO IS SELECTED)
   // ══════════════════════════════════════════════════════════════════════
   if (selectedVideo) {
     const activeSlide =
       selectedVideo.videoSlides[currentSlideIndex] || selectedVideo.videoSlides[0];
-    const progressPercent = Math.min(
-      100,
-      (currentTimeSec / selectedVideo.durationSeconds) * 100
-    );
+    const totalDuration = videoDurationSec || selectedVideo.durationSeconds;
+    const progressPercent = Math.min(100, (currentTimeSec / totalDuration) * 100);
 
     return (
       <div className="space-y-6 pb-28 text-white max-w-full overflow-x-hidden">
@@ -592,23 +347,21 @@ export const EducationView: React.FC<EducationViewProps> = ({
         <div className="flex items-center justify-between">
           <button
             onClick={() => {
-              if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
-              }
+              if (videoRef.current) videoRef.current.pause();
               setSelectedVideo(null);
             }}
             className="inline-flex items-center space-x-2 text-xs sm:text-sm font-bold text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 px-3.5 py-2 rounded-xl border border-slate-800 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>Back to All Guidelines</span>
+            <span>Back to All Diseases</span>
           </button>
 
           <div className="flex items-center space-x-2 text-xs text-slate-400">
             <span className="px-2.5 py-1 rounded-full bg-red-600/20 text-red-400 font-bold border border-red-500/30">
-              {selectedVideo.ucgChapter}
+              {selectedVideo.category}
             </span>
             <span className="hidden sm:inline bg-slate-800 px-2.5 py-1 rounded-full font-mono text-[11px] text-slate-300">
-              Level: {selectedVideo.levelOfCare}
+              Genesis of our journey
             </span>
           </div>
         </div>
@@ -617,19 +370,33 @@ export const EducationView: React.FC<EducationViewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* LEFT: MAIN VIDEO PLAYER & DETAILS (8 COLUMNS ON DESKTOP) */}
           <div className="lg:col-span-8 space-y-4">
-            {/* 16:9 CINEMATIC AI VIDEO CANVAS PLAYER CONTAINER */}
+            {/* 16:9 CINEMATIC VIDEO PLAYER WITH REAL GENESIS MP4 VIDEO */}
             <div
               ref={playerContainerRef}
               className="relative aspect-video rounded-2xl sm:rounded-3xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl group flex flex-col justify-between select-none"
             >
-              {/* 1. Real-time Animated HTML5 Canvas Video Layer */}
-              <canvas
-                ref={canvasRef}
-                onClick={togglePlayPause}
+              {/* REAL HTML5 VIDEO ELEMENT PLAYING GENESIS OF OUR JOURNEY WITH FULL AUDIO & VOICE */}
+              <video
+                ref={videoRef}
+                src={selectedVideo.videoUrl}
+                poster={selectedVideo.videoThumbnail}
+                playsInline
+                autoPlay
                 className="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer"
+                onClick={togglePlayPause}
+                onTimeUpdate={handleTimeUpdate}
+                onEnded={handleVideoEnded}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
               />
 
-              {/* 2. Interactive Center Play/Pause Overlay When Paused or Initial */}
+              {/* Dimmer Gradient Overlay for Readability */}
+              <div
+                onClick={togglePlayPause}
+                className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-transparent to-slate-950/50 z-10 pointer-events-none"
+              />
+
+              {/* Interactive Center Play/Pause Overlay When Paused */}
               {!isPlaying && (
                 <div
                   onClick={togglePlayPause}
@@ -638,13 +405,13 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-2xl transform hover:scale-110 transition-transform active:scale-95 border-2 border-white/20">
                     <Play className="w-8 h-8 fill-white ml-1" />
                   </div>
-                  <p className="mt-3 text-xs sm:text-sm font-bold text-white tracking-wide bg-slate-950/80 px-4 py-1.5 rounded-full border border-slate-800">
-                    Tap to Play UCG Clinical Masterclass
+                  <p className="mt-3 text-xs sm:text-sm font-bold text-white tracking-wide bg-slate-950/85 px-4 py-1.5 rounded-full border border-slate-800">
+                    Click to Play: {selectedVideo.diseaseName}
                   </p>
                 </div>
               )}
 
-              {/* 3. Action Flash Indicator Icon (+10 / -10 / play / pause) */}
+              {/* Action Flash Indicator Icon */}
               {flashAction && (
                 <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none animate-ping">
                   <div className="w-16 h-16 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-white">
@@ -655,118 +422,101 @@ export const EducationView: React.FC<EducationViewProps> = ({
                 </div>
               )}
 
-              {/* 4. Autoplay Audio Banner / Unmute Helper if Speech Blocked */}
-              {speechBlocked && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30">
+              {/* Overlay Top Bar: Disease Name, Live Badge, and Slide Overlay Toggle */}
+              <div className="relative z-20 p-3 sm:p-4 flex items-center justify-between pointer-events-auto">
+                <div className="flex items-center space-x-2">
+                  <span className="px-2.5 py-1 rounded-lg bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-wider shadow flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                    <span>AI MEDICAL MASTERCLASS</span>
+                  </span>
+                  <span className="bg-slate-900/90 text-slate-100 border border-slate-700/80 px-2.5 py-1 rounded-lg text-[11px] font-extrabold truncate max-w-[220px]">
+                    {selectedVideo.diseaseName}
+                  </span>
+                </div>
+
+                <div className="flex items-center space-x-2">
                   <button
-                    onClick={() => {
-                      setSpeechBlocked(false);
-                      setIsMuted(false);
-                      speakCurrentSlide(currentSlideIndex);
-                    }}
-                    className="bg-teal-500 hover:bg-teal-400 text-slate-950 font-extrabold text-xs px-4 py-1.5 rounded-full flex items-center space-x-2 shadow-xl animate-bounce"
+                    onClick={() => setShowSlideOverlay(!showSlideOverlay)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-colors flex items-center space-x-1 ${
+                      showSlideOverlay
+                        ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
+                        : 'bg-slate-900/80 text-slate-400 border-slate-800'
+                    }`}
+                    title="Toggle Disease Slides Overlay"
                   >
-                    <Volume2 className="w-4 h-4" />
-                    <span>Click to Enable Doctor Voice Audio</span>
+                    <Layers className="w-3 h-3" />
+                    <span>{showSlideOverlay ? 'Slides ON' : 'Slides OFF'}</span>
                   </button>
-                </div>
-              )}
-
-              {/* 5. Active Clinical Presentation Overlay Content */}
-              <div
-                onClick={togglePlayPause}
-                className="relative z-10 flex-1 p-4 sm:p-6 flex flex-col justify-between cursor-pointer"
-              >
-                {/* Top Overlay Badge & Telemetry Bar */}
-                <div className="flex items-center justify-between pointer-events-none">
-                  <div className="flex items-center space-x-2">
-                    <span className="px-2.5 py-1 rounded-lg bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-wider shadow flex items-center space-x-1">
-                      <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                      <span>LIVE UCG 2023</span>
-                    </span>
-                    <span className="bg-slate-900/90 text-slate-200 border border-slate-700/80 px-2.5 py-1 rounded-lg text-[10px] font-bold truncate max-w-[200px]">
-                      {selectedVideo.diseaseName}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center space-x-1.5 bg-slate-950/80 px-2.5 py-1 rounded-lg border border-slate-800 text-[10px] text-teal-400 font-mono">
+                  <div className="hidden sm:flex items-center space-x-1.5 bg-slate-950/80 px-2.5 py-1 rounded-lg border border-slate-800 text-[10px] text-teal-400 font-mono">
                     <Activity className="w-3.5 h-3.5 text-teal-400 animate-pulse" />
-                    <span className="hidden sm:inline">Telemetry Active • MoH Guidelines</span>
-                  </div>
-                </div>
-
-                {/* Center Dynamic Clinical Slide Presentation Card */}
-                <div className="my-auto max-w-xl space-y-2.5 bg-slate-900/85 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-teal-500/40 shadow-2xl pointer-events-auto">
-                  <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
-                    <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wide flex items-center space-x-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                      <span>
-                        Slide {currentSlideIndex + 1} of {selectedVideo.videoSlides.length} • {activeSlide.badge}
-                      </span>
-                    </span>
-                    <span className="text-[10px] font-mono text-teal-300 bg-teal-950/60 px-2 py-0.5 rounded border border-teal-800/60">
-                      {activeSlide.timing}
-                    </span>
-                  </div>
-
-                  <h3 className="text-base sm:text-lg font-extrabold text-white leading-tight">
-                    {activeSlide.title}
-                  </h3>
-
-                  <ul className="space-y-1.5 text-xs sm:text-sm text-slate-100">
-                    {activeSlide.keyPoints.map((point, idx) => (
-                      <li key={idx} className="flex items-start space-x-2">
-                        <span className="w-2 h-2 rounded-full bg-teal-400 mt-1.5 shrink-0 shadow-sm" />
-                        <span className="leading-snug">{point}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Bottom Presenter PIP & Dynamic Voice Subtitle Caption */}
-                <div className="flex items-end justify-between gap-3 pointer-events-none">
-                  {/* Doctor Speech Subtitle Bar */}
-                  <div className="flex-1 bg-slate-950/95 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-slate-800 text-xs text-slate-200 flex items-center space-x-2.5 shadow-lg">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
-                    <span className="truncate">
-                      <strong className="text-teal-300">{selectedVideo.speakerName}:</strong>{' '}
-                      <span className="text-slate-100">
-                        "{activeSlide.title} — {activeSlide.keyPoints[0]}"
-                      </span>
-                    </span>
-                  </div>
-
-                  {/* Doctor Picture-in-Picture with Speech Spectrum Ring */}
-                  <div className="w-20 sm:w-24 h-16 sm:h-20 rounded-2xl overflow-hidden border-2 border-teal-500 shadow-2xl relative bg-slate-900 shrink-0">
-                    <img
-                      src={selectedVideo.speakerAvatar}
-                      alt={selectedVideo.speakerName}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent" />
-
-                    <div className="absolute bottom-1 inset-x-1.5 flex items-center justify-between">
-                      <span className="text-[8px] font-bold text-white truncate max-w-[65%]">
-                        {selectedVideo.speakerName.split(' ')[0]}
-                      </span>
-                      {isPlaying && !isMuted ? (
-                        <Radio className="w-3 h-3 text-teal-400 animate-pulse" />
-                      ) : (
-                        <span className="text-[8px] text-slate-400">Off</span>
-                      )}
-                    </div>
+                    <span>Voice: K.I Ezra</span>
                   </div>
                 </div>
               </div>
 
-              {/* 6. Next Video Autoplay Countdown Modal */}
+              {/* Dynamic Center Disease Presentation Slide Overlay */}
+              {showSlideOverlay && (
+                <div className="relative z-20 my-auto px-4 sm:px-6 pointer-events-none">
+                  <div className="max-w-lg bg-slate-950/85 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-teal-500/40 shadow-2xl space-y-2 pointer-events-auto">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                      <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wide flex items-center space-x-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                        <span>Section {currentSlideIndex + 1} of {selectedVideo.videoSlides.length} • {activeSlide.badge}</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-teal-300 bg-teal-950/80 px-2 py-0.5 rounded border border-teal-800/60">
+                        {activeSlide.timing}
+                      </span>
+                    </div>
+
+                    <h3 className="text-sm sm:text-base font-extrabold text-white leading-tight">
+                      {activeSlide.title}
+                    </h3>
+
+                    <ul className="space-y-1 text-xs text-slate-200">
+                      {activeSlide.keyPoints.map((point, idx) => (
+                        <li key={idx} className="flex items-start space-x-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-teal-400 mt-1.5 shrink-0" />
+                          <span className="leading-snug">{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {/* Bottom Subtitle / Narration Bar */}
+              <div className="relative z-20 px-3 sm:px-4 pb-1 flex items-end justify-between gap-3 pointer-events-none">
+                <div className="flex-1 bg-slate-950/90 backdrop-blur-md px-3.5 py-2 rounded-xl border border-slate-800 text-xs text-slate-200 flex items-center space-x-2.5 shadow-lg">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                  <span className="truncate">
+                    <strong className="text-teal-300">K.I Ezra (Genesis Voice):</strong>{' '}
+                    <span className="text-slate-100">
+                      "{activeSlide.title} — {activeSlide.keyPoints[0]}"
+                    </span>
+                  </span>
+                </div>
+
+                <div className="w-16 h-14 sm:w-20 sm:h-16 rounded-xl overflow-hidden border-2 border-teal-500 shadow-2xl relative bg-slate-900 shrink-0">
+                  <img
+                    src={selectedVideo.speakerAvatar}
+                    alt={selectedVideo.speakerName}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent" />
+                  <span className="absolute bottom-0.5 inset-x-1 text-[8px] font-bold text-white text-center truncate">
+                    K.I Ezra
+                  </span>
+                </div>
+              </div>
+
+              {/* Next Video Autoplay Countdown Modal */}
               {nextVideoCountdown !== null && (
-                <div className="absolute inset-0 z-40 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center text-center p-6 space-y-3">
+                <div className="absolute inset-0 z-40 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center text-center p-6 space-y-3">
                   <span className="text-xs font-bold uppercase tracking-widest text-teal-400">
                     Up Next in {nextVideoCountdown}s
                   </span>
                   <h3 className="text-lg font-bold text-white max-w-md">
-                    {UCG_DISEASE_VIDEOS[(UCG_DISEASE_VIDEOS.findIndex((v) => v.id === selectedVideo.id) + 1) % UCG_DISEASE_VIDEOS.length].title}
+                    {DISEASE_VIDEOS[(DISEASE_VIDEOS.findIndex((v) => v.id === selectedVideo.id) + 1) % DISEASE_VIDEOS.length].title}
                   </h3>
                   <div className="flex items-center space-x-3 pt-2">
                     <button
@@ -777,8 +527,8 @@ export const EducationView: React.FC<EducationViewProps> = ({
                     </button>
                     <button
                       onClick={() => {
-                        const currentIndex = UCG_DISEASE_VIDEOS.findIndex((v) => v.id === selectedVideo.id);
-                        const nextVideo = UCG_DISEASE_VIDEOS[(currentIndex + 1) % UCG_DISEASE_VIDEOS.length];
+                        const currentIndex = DISEASE_VIDEOS.findIndex((v) => v.id === selectedVideo.id);
+                        const nextVideo = DISEASE_VIDEOS[(currentIndex + 1) % DISEASE_VIDEOS.length];
                         handleSelectVideo(nextVideo);
                       }}
                       className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs font-bold text-white shadow-lg"
@@ -796,7 +546,6 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   onClick={handleSeek}
                   className="relative w-full h-2 hover:h-3 bg-white/20 rounded-full cursor-pointer transition-all group/scrub"
                 >
-                  {/* Chapter tick marks */}
                   {selectedVideo.videoSlides.map((_, idx) => {
                     const markPct = (idx / selectedVideo.videoSlides.length) * 100;
                     return (
@@ -832,20 +581,20 @@ export const EducationView: React.FC<EducationViewProps> = ({
                       )}
                     </button>
 
-                    {/* Rewind 10s */}
+                    {/* Rewind 5s */}
                     <button
-                      onClick={() => seekToTime(currentTimeSec - 10)}
+                      onClick={() => seekToTime(currentTimeSec - 5)}
                       className="p-1 hover:text-slate-300 transition-colors"
-                      title="Rewind 10s (Left Arrow)"
+                      title="Rewind 5s (Left Arrow)"
                     >
                       <RotateCcw className="w-4 h-4" />
                     </button>
 
-                    {/* Forward 10s */}
+                    {/* Forward 5s */}
                     <button
-                      onClick={() => seekToTime(currentTimeSec + 10)}
+                      onClick={() => seekToTime(currentTimeSec + 5)}
                       className="p-1 hover:text-slate-300 transition-colors"
-                      title="Skip 10s (Right Arrow)"
+                      title="Skip 5s (Right Arrow)"
                     >
                       <RotateCw className="w-4 h-4" />
                     </button>
@@ -878,25 +627,24 @@ export const EducationView: React.FC<EducationViewProps> = ({
                           setIsMuted(val === 0);
                         }}
                         className="w-14 h-1 bg-white/30 accent-red-600 rounded cursor-pointer hidden sm:inline"
-                        title="Speech Volume"
+                        title="Volume Slider"
                       />
                     </div>
 
                     {/* Time Counter */}
                     <span className="text-[11px] font-mono text-slate-300">
-                      {formatSeconds(currentTimeSec)} / {selectedVideo.videoDuration}
+                      {formatSeconds(currentTimeSec)} / {formatSeconds(totalDuration)}
                     </span>
                   </div>
 
                   <div className="flex items-center space-x-2 sm:space-x-3">
-                    {/* Previous/Next Slide */}
+                    {/* Previous/Next Section */}
                     <button
                       onClick={() => {
                         const newIdx = Math.max(0, currentSlideIndex - 1);
                         setCurrentSlideIndex(newIdx);
-                        const slideSec = (selectedVideo.durationSeconds / selectedVideo.videoSlides.length) * newIdx;
-                        setCurrentTimeSec(Math.floor(slideSec));
-                        speakCurrentSlide(newIdx);
+                        const slideSec = (totalDuration / selectedVideo.videoSlides.length) * newIdx;
+                        seekToTime(Math.floor(slideSec));
                       }}
                       disabled={currentSlideIndex === 0}
                       className="p-1 text-slate-400 hover:text-white disabled:opacity-30"
@@ -913,9 +661,8 @@ export const EducationView: React.FC<EducationViewProps> = ({
                       onClick={() => {
                         const newIdx = Math.min(selectedVideo.videoSlides.length - 1, currentSlideIndex + 1);
                         setCurrentSlideIndex(newIdx);
-                        const slideSec = (selectedVideo.durationSeconds / selectedVideo.videoSlides.length) * newIdx;
-                        setCurrentTimeSec(Math.floor(slideSec));
-                        speakCurrentSlide(newIdx);
+                        const slideSec = (totalDuration / selectedVideo.videoSlides.length) * newIdx;
+                        seekToTime(Math.floor(slideSec));
                       }}
                       disabled={currentSlideIndex === selectedVideo.videoSlides.length - 1}
                       className="p-1 text-slate-400 hover:text-white disabled:opacity-30"
@@ -924,7 +671,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                       <ChevronRight className="w-4 h-4" />
                     </button>
 
-                    {/* Playback Speed Toggle */}
+                    {/* Speed Toggle */}
                     <button
                       onClick={handleCycleSpeed}
                       className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[11px] font-bold font-mono transition-colors"
@@ -933,7 +680,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                       {playbackSpeed}x
                     </button>
 
-                    {/* Fullscreen Toggle */}
+                    {/* Fullscreen */}
                     <button
                       onClick={() => {
                         if (!document.fullscreenElement) {
@@ -965,14 +712,13 @@ export const EducationView: React.FC<EducationViewProps> = ({
               </span>
               {selectedVideo.videoSlides.map((slide, idx) => {
                 const isActive = idx === currentSlideIndex;
-                const slideSec = (selectedVideo.durationSeconds / selectedVideo.videoSlides.length) * idx;
+                const slideSec = (totalDuration / selectedVideo.videoSlides.length) * idx;
                 return (
                   <button
                     key={idx}
                     onClick={() => {
                       setCurrentSlideIndex(idx);
-                      setCurrentTimeSec(Math.floor(slideSec));
-                      speakCurrentSlide(idx);
+                      seekToTime(Math.floor(slideSec));
                     }}
                     className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center space-x-1.5 ${
                       isActive
@@ -987,7 +733,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
               })}
             </div>
 
-            {/* ── VIDEO TITLE & ACTION BUTTONS ROW (PURE YOUTUBE) ── */}
+            {/* ── VIDEO TITLE & CHANNEL BAR (PURE YOUTUBE) ── */}
             <div className="space-y-3 pt-1">
               <h1 className="text-lg sm:text-xl md:text-2xl font-extrabold text-white leading-tight">
                 {selectedVideo.title}
@@ -1009,11 +755,10 @@ export const EducationView: React.FC<EducationViewProps> = ({
                       <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
                     </div>
                     <p className="text-xs text-slate-400 leading-tight">
-                      Presented by {selectedVideo.speakerName} • 184K subscribers
+                      Narrated by {selectedVideo.speakerName} • Genesis of our journey
                     </p>
                   </div>
 
-                  {/* Subscribe Button */}
                   <button
                     onClick={() => setIsSubscribed(!isSubscribed)}
                     className={`ml-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${
@@ -1026,7 +771,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   </button>
                 </div>
 
-                {/* YouTube Action Buttons: Like, Share, Ask Doctor */}
+                {/* YouTube Action Buttons: Like, Share, Consult Doctor */}
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={handleToggleLike}
@@ -1075,7 +820,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   <span>•</span>
                   <span>{selectedVideo.publishedDate}</span>
                   <span>•</span>
-                  <span className="text-teal-400">{selectedVideo.ucgChapter}</span>
+                  <span className="text-teal-400">{selectedVideo.category}</span>
                   <span>•</span>
                   <span className="text-amber-400">{selectedVideo.levelOfCare}</span>
                 </div>
@@ -1084,13 +829,12 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   {selectedVideo.summary}
                 </p>
 
-                {/* Expanded Detailed Guideline Extraction directly from UCG 2023 */}
                 {isDescriptionExpanded ? (
                   <div className="pt-3 border-t border-slate-800 space-y-4 text-xs">
                     {/* Case Definition */}
                     <div className="space-y-1">
                       <h4 className="font-bold text-amber-300 uppercase tracking-wide">
-                        1. Case Definition & Diagnostic Criteria
+                        1. Case Definition & Diagnostic Overview
                       </h4>
                       <p className="text-slate-300">
                         {selectedVideo.clinicalGuideline.caseDefinition}
@@ -1105,7 +849,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                     {/* Investigations */}
                     <div className="space-y-1">
                       <h4 className="font-bold text-teal-300 uppercase tracking-wide">
-                        2. Laboratory Investigations & Tests
+                        2. Key Diagnostic Investigations & Screening
                       </h4>
                       <div className="flex flex-wrap gap-1.5 pt-1">
                         {selectedVideo.clinicalGuideline.investigations.map((inv, idx) => (
@@ -1122,7 +866,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                     {/* Treatment Protocol & Dosages */}
                     <div className="space-y-1.5">
                       <h4 className="font-bold text-emerald-300 uppercase tracking-wide">
-                        3. First-Line Medicines & Dosages (UCG 2023)
+                        3. Evidence-Based First-Line Medicines & Regimens
                       </h4>
                       <div className="space-y-1.5 bg-slate-950/70 p-3 rounded-xl border border-slate-800">
                         {selectedVideo.clinicalGuideline.firstLineMedicines.map((med, idx) => (
@@ -1150,7 +894,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                     {/* Referral Protocol */}
                     <div className="space-y-1">
                       <h4 className="font-bold text-blue-300 uppercase tracking-wide">
-                        5. Hospital Referral Protocol
+                        5. Specialist Referral Guidelines
                       </h4>
                       <p className="text-slate-300">
                         {selectedVideo.clinicalGuideline.referralProtocol}
@@ -1160,14 +904,12 @@ export const EducationView: React.FC<EducationViewProps> = ({
                     {/* Prevention & Counseling */}
                     <div className="space-y-1">
                       <h4 className="font-bold text-purple-300 uppercase tracking-wide">
-                        6. Patient Self-Care & Prevention Advice
+                        6. Prevention, Lifestyle & Patient Counseling
                       </h4>
                       <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
-                        {selectedVideo.clinicalGuideline.preventionCounseling.map(
-                          (counsel, idx) => (
-                            <li key={idx}>{counsel}</li>
-                          )
-                        )}
+                        {selectedVideo.clinicalGuideline.preventionCounseling.map((counsel, idx) => (
+                          <li key={idx}>{counsel}</li>
+                        ))}
                       </ul>
                     </div>
 
@@ -1177,7 +919,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   </div>
                 ) : (
                   <p className="text-[11px] text-teal-400 font-bold pt-0.5">
-                    ...Show full clinical protocol (dosages, investigations & danger signs) ▼
+                    ...Show full medical details, first-line medications & danger signs ▼
                   </p>
                 )}
               </div>
@@ -1186,7 +928,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
               <div className="space-y-4 pt-2">
                 <div className="flex items-center space-x-2">
                   <h3 className="text-base font-extrabold text-white">
-                    Clinical Discussion ({commentsList.length})
+                    Medical Discussion ({commentsList.length})
                   </h3>
                 </div>
 
@@ -1199,7 +941,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                     type="text"
                     value={userComment}
                     onChange={(e) => setUserComment(e.target.value)}
-                    placeholder="Add a clinical question or comment on this guideline..."
+                    placeholder="Ask a medical question about this condition..."
                     className="flex-1 bg-transparent border-b border-slate-700 focus:border-white text-xs sm:text-sm text-white placeholder-slate-500 py-1.5 focus:outline-none"
                   />
                   <button
@@ -1235,12 +977,12 @@ export const EducationView: React.FC<EducationViewProps> = ({
           {/* RIGHT: YOUTUBE "UP NEXT" RECOMMENDED VIDEOS SIDEBAR (4 COLUMNS) */}
           <div className="lg:col-span-4 space-y-3">
             <h3 className="text-sm font-bold text-slate-200 px-1">
-              Recommended Guidelines (UCG 2023)
+              Related Diseases in {selectedVideo.category}
             </h3>
 
-            <div className="space-y-3">
-              {UCG_DISEASE_VIDEOS.filter((v) => v.id !== selectedVideo.id)
-                .slice(0, 12)
+            <div className="space-y-3 max-h-[1100px] overflow-y-auto pr-1">
+              {DISEASE_VIDEOS.filter((v) => v.category === selectedVideo.category && v.id !== selectedVideo.id)
+                .slice(0, 15)
                 .map((item) => (
                   <div
                     key={item.id}
@@ -1290,16 +1032,19 @@ export const EducationView: React.FC<EducationViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
         {/* YouTube Brand Badge */}
         <div className="flex items-center space-x-2.5">
-          <div className="w-8 h-8 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-600/30">
-            <Play className="w-4 h-4 fill-white ml-0.5" />
+          <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-600/30">
+            <Play className="w-5 h-5 fill-white ml-0.5" />
           </div>
           <div>
             <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center space-x-1.5">
               <span>VitaNova HealthTube</span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-600/20 text-red-400 border border-red-500/30">
-                UCG 2023
+                Genesis of our journey
               </span>
             </h1>
+            <p className="text-xs text-slate-400">
+              Diseases Known to Mankind • Narrated by K.I Ezra
+            </p>
           </div>
         </div>
 
@@ -1308,7 +1053,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search guidelines by disease or medicine (e.g., Malaria, Amlodipine, Pre-eclampsia)..."
+            placeholder="Search across all 213 diseases (e.g. Malaria, Lupus, Alzheimer's, Ebola, Asthma)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-900 border border-slate-800 rounded-full pl-10 pr-9 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all shadow-inner"
@@ -1325,11 +1070,11 @@ export const EducationView: React.FC<EducationViewProps> = ({
 
         {/* Guideline Count Badge */}
         <span className="hidden lg:inline text-xs font-semibold text-slate-400 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
-          24 Guidelines • MoH Uganda
+          {filteredVideos.length} Disease Videos • K.I Ezra
         </span>
       </div>
 
-      {/* ── YOUTUBE CATEGORY CHIPS (HORIZONTAL SCROLL) ── */}
+      {/* ── YOUTUBE CATEGORY CHIPS (HORIZONTAL SCROLL ACROSS ALL 15 CATEGORIES) ── */}
       <div className="flex space-x-2 overflow-x-auto pb-1.5 pt-1 scrollbar-none no-scrollbar sticky top-16 z-20 bg-slate-950/90 backdrop-blur-md py-1">
         {categories.map((cat) => (
           <button
@@ -1350,9 +1095,9 @@ export const EducationView: React.FC<EducationViewProps> = ({
       {filteredVideos.length === 0 && (
         <div className="p-12 text-center space-y-3 bg-slate-900/50 rounded-3xl border border-slate-800 max-w-md mx-auto my-8">
           <Search className="w-10 h-10 text-slate-600 mx-auto" />
-          <h3 className="text-base font-bold text-white">No guideline videos found</h3>
+          <h3 className="text-base font-bold text-white">No disease videos found</h3>
           <p className="text-xs text-slate-400">
-            No disease matched "{searchQuery}". Try searching for Malaria, Hypertension, Diabetes, or Asthma.
+            No condition matched "{searchQuery}". Try searching for Malaria, Hypertension, Diabetes, or Asthma.
           </p>
           <button
             onClick={() => {
@@ -1366,7 +1111,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
         </div>
       )}
 
-      {/* ── YOUTUBE VIDEO GRID (MODERN YOUTUBE CARDS) ── */}
+      {/* ── YOUTUBE VIDEO GRID FOR ALL 213 DISEASES ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-6">
         {filteredVideos.map((video) => (
           <div
@@ -1382,19 +1127,19 @@ export const EducationView: React.FC<EducationViewProps> = ({
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 loading="lazy"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
               {/* Center Play Button Prompt on Hover */}
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="w-12 h-12 rounded-full bg-red-600/90 text-white flex items-center justify-center shadow-2xl transform scale-75 group-hover:scale-100 transition-transform">
+                <div className="w-12 h-12 rounded-full bg-red-600/95 text-white flex items-center justify-center shadow-2xl transform scale-75 group-hover:scale-100 transition-transform">
                   <Play className="w-5 h-5 fill-white ml-0.5" />
                 </div>
               </div>
 
-              {/* Top-Left Level of Care Pill */}
+              {/* Top-Left Category Pill */}
               <div className="absolute top-2 left-2">
                 <span className="bg-slate-950/85 backdrop-blur-md text-[10px] font-extrabold text-teal-300 px-2 py-0.5 rounded-md border border-teal-500/30">
-                  {video.levelOfCare.split('–')[0].trim()}
+                  {video.category}
                 </span>
               </div>
 
@@ -1406,16 +1151,14 @@ export const EducationView: React.FC<EducationViewProps> = ({
               </div>
             </div>
 
-            {/* Below Thumbnail Details (Channel Avatar + Title + Views) */}
+            {/* Below Thumbnail Details (Avatar + Title + Views) */}
             <div className="flex items-start space-x-3 px-0.5">
-              {/* Doctor / Presenter Avatar */}
               <img
                 src={video.speakerAvatar}
                 alt={video.speakerName}
                 className="w-9 h-9 rounded-full object-cover border border-slate-700 shrink-0 mt-0.5"
               />
 
-              {/* Text Block */}
               <div className="min-w-0 flex-1 space-y-0.5">
                 <h3 className="text-xs sm:text-sm font-bold text-white line-clamp-2 leading-snug group-hover:text-teal-400 transition-colors">
                   {video.title}
