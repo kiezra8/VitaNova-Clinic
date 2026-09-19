@@ -75,9 +75,9 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
     },
     {
       id: 'education',
-      badge: 'Doctor Video Talks',
-      title: 'Health Education',
-      subtitle: 'Learn from Uganda\'s top clinicians',
+      badge: 'Uganda Clinical Guidelines (UCG)',
+      title: 'Clinical Guideline Videos',
+      subtitle: 'Watch animated MoH clinical treatment videos',
       image: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=1200&q=90',
       tab: 'education' as NavTab,
       accent: 'from-blue-600/80 to-transparent'
