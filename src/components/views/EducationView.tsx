@@ -1,658 +1,929 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Video,
   Play,
   Pause,
-  Download,
-  CheckCircle2,
-  Clock,
-  ShieldAlert,
-  Search,
-  ChevronRight,
-  Sparkles,
+  RotateCcw,
+  RotateCw,
   Volume2,
   VolumeX,
   Maximize2,
-  BookOpen,
-  HeartPulse,
-  AlertTriangle,
-  ArrowLeft,
-  X,
+  Minimize2,
+  Search,
+  ThumbsUp,
   Share2,
-  BookmarkCheck,
-  Stethoscope
+  Download,
+  Bookmark,
+  CheckCircle2,
+  Sparkles,
+  Stethoscope,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Activity,
+  Send,
+  MessageSquare,
+  FileText,
+  AlertTriangle,
+  X,
+  SlidersHorizontal
 } from 'lucide-react';
 import { HealthEducationArticle } from '../../types';
+import { UCG_DISEASE_VIDEOS, UCGVideoItem } from '../../data/ucgVideos';
 
 interface EducationViewProps {
-  articles: HealthEducationArticle[];
-  onToggleDownload: (articleId: string) => Promise<void>;
+  articles?: HealthEducationArticle[];
+  onToggleDownload?: (articleId: string) => Promise<void>;
   onConsultDoctor?: (doctorName: string) => void;
 }
 
 export const EducationView: React.FC<EducationViewProps> = ({
-  articles,
-  onToggleDownload,
   onConsultDoctor
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedArticle, setSelectedArticle] = useState<HealthEducationArticle | null>(null);
+  // Navigation & Filtering
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeContentTab, setActiveContentTab] = useState<'overview' | 'causes' | 'symptoms' | 'prevention' | 'treatment'>('overview');
+  const [selectedVideo, setSelectedVideo] = useState<UCGVideoItem | null>(null);
 
-  // Video Player Simulation State
+  // Video Player Controls State
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [playbackProgress, setPlaybackProgress] = useState<number>(30); // percentage
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
+  const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
+  const [isLiked, setIsLiked] = useState<boolean>(false);
+  const [likeCount, setLikeCount] = useState<number>(4820);
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let timer: ReturnType<typeof setInterval>;
-    if (selectedArticle && isPlaying) {
-      timer = setInterval(() => {
-        setPlaybackProgress((prev) => (prev >= 98 ? 0 : prev + 0.5));
-      }, 500);
+  // Interactive Comments
+  const [userComment, setUserComment] = useState<string>('');
+  const [commentsList, setCommentsList] = useState<Array<{ author: string; role: string; text: string; time: string }>>([
+    {
+      author: 'Dr. Sarah Nabirye (Mbarara Regional Referral)',
+      role: 'Medical Officer',
+      text: 'The IV Artesunate dilution protocol explained in this video matches our daily ward practice at Mbarara. Crucial reminder on checking blood glucose first.',
+      time: '2 days ago'
+    },
+    {
+      author: 'Sister Grace Auma (Gulu Regional Referral Hospital)',
+      role: 'Clinical Officer',
+      text: 'Very clear explanation of the dosage adjustments. We use this exact UCG 2023 algorithm for all severe admissions.',
+      time: '5 days ago'
+    },
+    {
+      author: 'Kato Ronald (Kampala)',
+      role: 'Patient / Caregiver',
+      text: 'Thank you for breaking down the danger signs. This helped us know when to take my mother to hospital without delay.',
+      time: '1 week ago'
     }
-    return () => clearInterval(timer);
-  }, [selectedArticle, isPlaying]);
+  ]);
 
+  // YouTube Category Filter Chips
   const categories = [
-    'all',
-    'Chronic Disease',
+    'All',
     'Infectious Diseases',
-    'Maternal Health',
-    'Child Health',
-    'Nutrition'
+    'Cardiovascular',
+    'Endocrine & Diabetes',
+    'Respiratory',
+    'Obstetrics & Maternal',
+    'Childhood Illness & SAM',
+    'Gastrointestinal & Hepatic',
+    'Renal & Urinary',
+    'Blood & Sickle Cell',
+    'Emergencies & Trauma',
+    'Musculoskeletal'
   ];
 
-  const filteredArticles = articles
-    .filter((a) => selectedCategory === 'all' || a.category === selectedCategory)
-    .filter((a) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        a.title.toLowerCase().includes(q) ||
-        a.diseaseName.toLowerCase().includes(q) ||
-        a.summary.toLowerCase().includes(q) ||
-        a.speakerName.toLowerCase().includes(q)
-      );
-    });
+  // Filtered Video Library
+  const filteredVideos = useMemo(() => {
+    return UCG_DISEASE_VIDEOS.filter((vid) => {
+      const matchesCategory = selectedCategory === 'All' || vid.category === selectedCategory;
+      if (!searchQuery.trim()) return matchesCategory;
 
-  const handleOpenTalk = (article: HealthEducationArticle) => {
-    setSelectedArticle(article);
+      const q = searchQuery.toLowerCase();
+      const matchesSearch =
+        vid.title.toLowerCase().includes(q) ||
+        vid.diseaseName.toLowerCase().includes(q) ||
+        vid.summary.toLowerCase().includes(q) ||
+        vid.speakerName.toLowerCase().includes(q) ||
+        vid.clinicalGuideline.firstLineMedicines.some((med) => med.toLowerCase().includes(q));
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [selectedCategory, searchQuery]);
+
+  // Handle Video Selection (Open YouTube Watch Page)
+  const handleSelectVideo = (video: UCGVideoItem) => {
+    setSelectedVideo(video);
     setIsPlaying(true);
-    setPlaybackProgress(15);
-    setActiveContentTab('overview');
+    setCurrentSlideIndex(0);
+    setCurrentTimeSec(15);
+    setIsDescriptionExpanded(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  return (
-    <div className="space-y-6 pb-24 max-w-full overflow-x-hidden">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-teal-950/60 via-slate-900 to-slate-900 border border-teal-500/20 rounded-3xl p-5 sm:p-7 relative overflow-hidden shadow-xl">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+  // Timer simulation for active video presentation playback
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    if (selectedVideo && isPlaying) {
+      timer = setInterval(() => {
+        setCurrentTimeSec((prev) => {
+          const next = prev + playbackSpeed;
+          if (next >= selectedVideo.durationSeconds) {
+            return 0;
+          }
+          // Advance slide automatically according to time
+          const slidesCount = selectedVideo.videoSlides.length;
+          if (slidesCount > 0) {
+            const slideDuration = selectedVideo.durationSeconds / slidesCount;
+            const newIndex = Math.min(slidesCount - 1, Math.floor(next / slideDuration));
+            setCurrentSlideIndex(newIndex);
+          }
+          return next;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [selectedVideo, isPlaying, playbackSpeed]);
 
-        <div className="relative z-10 max-w-3xl space-y-2.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-              <Video className="w-3.5 h-3.5 text-teal-400" />
-              <span>Doctor-Led Video Talks</span>
+  // Format MM:SS
+  const formatSeconds = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Add Comment
+  const handleAddComment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userComment.trim()) return;
+
+    setCommentsList((prev) => [
+      {
+        author: 'Sarah Namubiru (Patient)',
+        role: 'Verified Patient',
+        text: userComment.trim(),
+        time: 'Just now'
+      },
+      ...prev
+    ]);
+    setUserComment('');
+  };
+
+  // Handle Seek in video progress
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!selectedVideo) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetSec = Math.floor(pos * selectedVideo.durationSeconds);
+    setCurrentTimeSec(targetSec);
+    const slidesCount = selectedVideo.videoSlides.length;
+    if (slidesCount > 0) {
+      const slideDuration = selectedVideo.durationSeconds / slidesCount;
+      setCurrentSlideIndex(Math.min(slidesCount - 1, Math.floor(targetSec / slideDuration)));
+    }
+  };
+
+  // Speed toggle (1x -> 1.25x -> 1.5x -> 2x)
+  const handleCycleSpeed = () => {
+    const speeds = [1, 1.25, 1.5, 2];
+    const nextIndex = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
+    setPlaybackSpeed(speeds[nextIndex]);
+  };
+
+  // Like button
+  const handleToggleLike = () => {
+    if (isLiked) {
+      setIsLiked(false);
+      setLikeCount((c) => c - 1);
+    } else {
+      setIsLiked(true);
+      setLikeCount((c) => c + 1);
+    }
+  };
+
+  // ══════════════════════════════════════════════════════════════════════
+  // VIEW 1: YOUTUBE THEATER / WATCH PLAYER VIEW (WHEN VIDEO SELECTED)
+  // ══════════════════════════════════════════════════════════════════════
+  if (selectedVideo) {
+    const activeSlide =
+      selectedVideo.videoSlides[currentSlideIndex] || selectedVideo.videoSlides[0];
+    const progressPercent = Math.min(
+      100,
+      (currentTimeSec / selectedVideo.durationSeconds) * 100
+    );
+
+    return (
+      <div className="space-y-6 pb-28 text-white max-w-full overflow-x-hidden">
+        {/* Top Back Navigation Bar */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setSelectedVideo(null)}
+            className="inline-flex items-center space-x-2 text-xs sm:text-sm font-bold text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 px-3.5 py-2 rounded-xl border border-slate-800 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to All Guidelines</span>
+          </button>
+
+          <div className="flex items-center space-x-2 text-xs text-slate-400">
+            <span className="px-2.5 py-1 rounded-full bg-red-600/20 text-red-400 font-bold border border-red-500/30">
+              {selectedVideo.ucgChapter}
             </span>
-            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
-              <Sparkles className="w-3 h-3 text-amber-400" />
-              <span>Ugandan Clinical Context</span>
+            <span className="hidden sm:inline bg-slate-800 px-2.5 py-1 rounded-full font-mono text-[11px] text-slate-300">
+              Level: {selectedVideo.levelOfCare}
             </span>
           </div>
+        </div>
 
-          <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
-            Health Talks by Ugandan Doctors
-          </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Watch. Learn. Download offline.
-          </p>
+        {/* ── 2-COLUMN YOUTUBE LAYOUT (MAIN PLAYER + RECOMMENDED SIDEBAR) ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* LEFT: MAIN VIDEO PLAYER & DETAILS (8 COLUMNS ON DESKTOP) */}
+          <div className="lg:col-span-8 space-y-4">
+            {/* 16:9 CINEMATIC AI VIDEO CANVAS PLAYER */}
+            <div
+              ref={playerContainerRef}
+              className="relative aspect-video rounded-2xl sm:rounded-3xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl group flex flex-col justify-between"
+            >
+              {/* Background Video Visual Layer (Dynamic Presentation Screen) */}
+              <div className="absolute inset-0 z-0">
+                <img
+                  src={selectedVideo.videoThumbnail}
+                  alt={selectedVideo.title}
+                  className="w-full h-full object-cover filter brightness-[0.25] blur-[2px]"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/70 to-slate-950/50" />
+              </div>
+
+              {/* ── ACTIVE AI CLINICAL PRESENTATION CANVAS ── */}
+              <div className="relative z-10 flex-1 p-4 sm:p-6 flex flex-col justify-between">
+                {/* Top Overlay Badge & Level of Care */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-wider shadow">
+                      LIVE UCG 2023
+                    </span>
+                    <span className="bg-slate-900/90 text-slate-200 border border-slate-700/80 px-2.5 py-1 rounded-lg text-[10px] font-bold">
+                      {selectedVideo.diseaseName}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-1.5 bg-slate-950/80 px-2.5 py-1 rounded-lg border border-slate-800 text-[10px] text-teal-400 font-mono">
+                    <Activity className="w-3 h-3 text-teal-400 animate-pulse" />
+                    <span>MoH Uganda Approved Protocol</span>
+                  </div>
+                </div>
+
+                {/* Center Clinical Slide Content (Dynamic AI Presentation) */}
+                <div className="my-auto max-w-xl space-y-2.5 bg-slate-900/80 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-slate-700/60 shadow-xl">
+                  <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
+                    <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wide">
+                      Slide {currentSlideIndex + 1} of {selectedVideo.videoSlides.length} •{' '}
+                      {activeSlide.badge}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {activeSlide.timing}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base sm:text-lg font-extrabold text-white leading-tight">
+                    {activeSlide.title}
+                  </h3>
+
+                  <ul className="space-y-1.5 text-xs sm:text-sm text-slate-200">
+                    {activeSlide.keyPoints.map((point, idx) => (
+                      <li key={idx} className="flex items-start space-x-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400 mt-1.5 shrink-0" />
+                        <span className="leading-snug">{point}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Bottom Presenter PIP & Dynamic Voice Caption */}
+                <div className="flex items-end justify-between gap-3">
+                  {/* Doctor Speech Subtitle Bar */}
+                  <div className="flex-1 bg-slate-950/90 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800 text-xs text-slate-200 flex items-center space-x-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                    <span className="truncate">
+                      <strong className="text-teal-300">{selectedVideo.speakerName}:</strong>{' '}
+                      "According to the 2023 Uganda Clinical Guidelines, {activeSlide.title.toLowerCase()}..."
+                    </span>
+                  </div>
+
+                  {/* Doctor Video Picture-in-Picture with Audio Waveform */}
+                  <div className="w-24 sm:w-28 h-20 sm:h-24 rounded-2xl overflow-hidden border-2 border-teal-500/70 shadow-2xl relative bg-slate-900 shrink-0">
+                    <img
+                      src={selectedVideo.speakerAvatar}
+                      alt={selectedVideo.speakerName}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+
+                    {/* Animated equalizer waves */}
+                    <div className="absolute bottom-1.5 inset-x-1.5 flex items-center justify-between">
+                      <span className="text-[8px] font-bold text-white truncate max-w-[60%]">
+                        {selectedVideo.speakerName.split(' ')[0]}
+                      </span>
+                      <div className="flex items-center space-x-0.5">
+                        {[40, 80, 50, 95, 60].map((h, i) => (
+                          <span
+                            key={i}
+                            className="w-0.5 bg-teal-400 rounded-full transition-all duration-200"
+                            style={{
+                              height: isPlaying ? `${(h * (currentTimeSec % 3 + 1)) / 30}px` : '3px'
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── YOUTUBE SCRUBBER & VIDEO CONTROLS BAR ── */}
+              <div className="relative z-20 bg-gradient-to-t from-black via-black/90 to-transparent pt-4 pb-2 px-3 sm:px-4 space-y-1.5">
+                {/* Clickable Scrubber Progress Bar */}
+                <div
+                  onClick={handleSeek}
+                  className="relative w-full h-1.5 hover:h-2.5 bg-white/20 rounded-full cursor-pointer transition-all group/scrub"
+                >
+                  <div
+                    className="h-full bg-red-600 rounded-full relative"
+                    style={{ width: `${progressPercent}%` }}
+                  >
+                    <span className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-red-600 scale-0 group-hover/scrub:scale-100 transition-transform shadow" />
+                  </div>
+                </div>
+
+                {/* Control Buttons Row */}
+                <div className="flex items-center justify-between text-xs sm:text-sm">
+                  <div className="flex items-center space-x-2 sm:space-x-3">
+                    {/* Play/Pause */}
+                    <button
+                      onClick={() => setIsPlaying(!isPlaying)}
+                      className="p-1.5 hover:text-red-500 transition-colors"
+                      title={isPlaying ? 'Pause' : 'Play'}
+                    >
+                      {isPlaying ? (
+                        <Pause className="w-5 h-5 fill-white" />
+                      ) : (
+                        <Play className="w-5 h-5 fill-white ml-0.5" />
+                      )}
+                    </button>
+
+                    {/* Rewind 10s */}
+                    <button
+                      onClick={() => setCurrentTimeSec((t) => Math.max(0, t - 10))}
+                      className="p-1 hover:text-slate-300 transition-colors"
+                      title="Rewind 10 seconds"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+
+                    {/* Forward 10s */}
+                    <button
+                      onClick={() =>
+                        setCurrentTimeSec((t) =>
+                          Math.min(selectedVideo.durationSeconds, t + 10)
+                        )
+                      }
+                      className="p-1 hover:text-slate-300 transition-colors"
+                      title="Skip 10 seconds"
+                    >
+                      <RotateCw className="w-4 h-4" />
+                    </button>
+
+                    {/* Volume Mute */}
+                    <button
+                      onClick={() => setIsMuted(!isMuted)}
+                      className="p-1 hover:text-slate-300 transition-colors"
+                    >
+                      {isMuted ? (
+                        <VolumeX className="w-4 h-4 text-red-400" />
+                      ) : (
+                        <Volume2 className="w-4 h-4" />
+                      )}
+                    </button>
+
+                    {/* Time Counter */}
+                    <span className="text-[11px] font-mono text-slate-300">
+                      {formatSeconds(currentTimeSec)} / {selectedVideo.videoDuration}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-2 sm:space-x-3">
+                    {/* Previous/Next Slide */}
+                    <button
+                      onClick={() => setCurrentSlideIndex((i) => Math.max(0, i - 1))}
+                      disabled={currentSlideIndex === 0}
+                      className="p-1 text-slate-400 hover:text-white disabled:opacity-30"
+                      title="Previous Slide"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-[10px] font-bold text-slate-400 hidden sm:inline">
+                      Slide {currentSlideIndex + 1}/{selectedVideo.videoSlides.length}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setCurrentSlideIndex((i) =>
+                          Math.min(selectedVideo.videoSlides.length - 1, i + 1)
+                        )
+                      }
+                      disabled={
+                        currentSlideIndex === selectedVideo.videoSlides.length - 1
+                      }
+                      className="p-1 text-slate-400 hover:text-white disabled:opacity-30"
+                      title="Next Slide"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+
+                    {/* Playback Speed */}
+                    <button
+                      onClick={handleCycleSpeed}
+                      className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[11px] font-bold font-mono transition-colors"
+                      title="Playback Speed"
+                    >
+                      {playbackSpeed}x
+                    </button>
+
+                    {/* Fullscreen */}
+                    <button
+                      onClick={() => {
+                        if (!document.fullscreenElement) {
+                          playerContainerRef.current?.requestFullscreen?.().catch(() => {});
+                          setIsFullscreen(true);
+                        } else {
+                          document.exitFullscreen?.().catch(() => {});
+                          setIsFullscreen(false);
+                        }
+                      }}
+                      className="p-1 hover:text-slate-300 transition-colors"
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="w-4 h-4" />
+                      ) : (
+                        <Maximize2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── VIDEO TITLE ── */}
+            <div className="space-y-3 pt-1">
+              <h1 className="text-lg sm:text-xl md:text-2xl font-extrabold text-white leading-tight">
+                {selectedVideo.title}
+              </h1>
+
+              {/* ── CHANNEL BAR & ACTION BUTTONS ROW (PURE YOUTUBE) ── */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                {/* Channel / Presenter Info */}
+                <div className="flex items-center space-x-3">
+                  <img
+                    src={selectedVideo.speakerAvatar}
+                    alt={selectedVideo.speakerName}
+                    className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border border-slate-700 shadow"
+                  />
+                  <div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="font-bold text-sm text-white leading-tight">
+                        {selectedVideo.channelName}
+                      </span>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
+                    </div>
+                    <p className="text-xs text-slate-400 leading-tight">
+                      Presented by {selectedVideo.speakerName} • 184K subscribers
+                    </p>
+                  </div>
+
+                  {/* Subscribe Button */}
+                  <button
+                    onClick={() => setIsSubscribed(!isSubscribed)}
+                    className={`ml-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${
+                      isSubscribed
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        : 'bg-white hover:bg-slate-200 text-slate-950 shadow-md active:scale-95'
+                    }`}
+                  >
+                    {isSubscribed ? 'Subscribed ✓' : 'Subscribe'}
+                  </button>
+                </div>
+
+                {/* YouTube Action Buttons: Like, Share, Download UCG, Ask Doctor */}
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleToggleLike}
+                    className={`px-3.5 py-2 rounded-full text-xs font-bold flex items-center space-x-1.5 transition-all ${
+                      isLiked
+                        ? 'bg-white text-slate-950'
+                        : 'bg-slate-800/90 hover:bg-slate-700 text-white'
+                    }`}
+                  >
+                    <ThumbsUp className="w-3.5 h-3.5" />
+                    <span>{likeCount.toLocaleString()}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(window.location.href);
+                        alert('Video link copied to clipboard!');
+                      }
+                    }}
+                    className="px-3.5 py-2 rounded-full bg-slate-800/90 hover:bg-slate-700 text-white text-xs font-bold flex items-center space-x-1.5 transition-colors"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Share</span>
+                  </button>
+
+                  {onConsultDoctor && (
+                    <button
+                      onClick={() => onConsultDoctor(selectedVideo.speakerName)}
+                      className="px-4 py-2 rounded-full bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-extrabold flex items-center space-x-1.5 shadow-md shadow-teal-500/20 transition-all active:scale-95"
+                    >
+                      <Stethoscope className="w-3.5 h-3.5" />
+                      <span>Consult Doctor</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ── EXPANDABLE YOUTUBE DESCRIPTION BOX ── */}
+              <div
+                onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+                className="bg-slate-900/90 hover:bg-slate-850 p-4 rounded-2xl border border-slate-800/80 cursor-pointer transition-colors space-y-2.5 text-xs sm:text-sm text-slate-200"
+              >
+                <div className="flex flex-wrap items-center gap-2 font-bold text-slate-300 text-xs">
+                  <span>{selectedVideo.views} views</span>
+                  <span>•</span>
+                  <span>{selectedVideo.publishedDate}</span>
+                  <span>•</span>
+                  <span className="text-teal-400">{selectedVideo.ucgChapter}</span>
+                  <span>•</span>
+                  <span className="text-amber-400">{selectedVideo.levelOfCare}</span>
+                </div>
+
+                <p className="leading-relaxed font-normal text-slate-300">
+                  {selectedVideo.summary}
+                </p>
+
+                {/* Expanded Detailed Guideline Extraction directly from UCG 2023 */}
+                {isDescriptionExpanded ? (
+                  <div className="pt-3 border-t border-slate-800 space-y-4 text-xs">
+                    {/* Case Definition */}
+                    <div className="space-y-1">
+                      <h4 className="font-bold text-amber-300 uppercase tracking-wide">
+                        1. Case Definition & Diagnostic Criteria
+                      </h4>
+                      <p className="text-slate-300">
+                        {selectedVideo.clinicalGuideline.caseDefinition}
+                      </p>
+                      <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1 pt-1">
+                        {selectedVideo.clinicalGuideline.diagnosticCriteria.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Investigations */}
+                    <div className="space-y-1">
+                      <h4 className="font-bold text-teal-300 uppercase tracking-wide">
+                        2. Laboratory Investigations & Tests
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {selectedVideo.clinicalGuideline.investigations.map((inv, idx) => (
+                          <span
+                            key={idx}
+                            className="bg-slate-800 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700 text-[11px]"
+                          >
+                            ✓ {inv}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Treatment Protocol & Dosages */}
+                    <div className="space-y-1.5">
+                      <h4 className="font-bold text-emerald-300 uppercase tracking-wide">
+                        3. First-Line Medicines & Dosages (UCG 2023)
+                      </h4>
+                      <div className="space-y-1.5 bg-slate-950/70 p-3 rounded-xl border border-slate-800">
+                        {selectedVideo.clinicalGuideline.firstLineMedicines.map((med, idx) => (
+                          <div key={idx} className="flex items-start space-x-2">
+                            <span className="text-emerald-400 font-bold">•</span>
+                            <span className="text-slate-200 font-medium">{med}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Danger Signs */}
+                    <div className="space-y-1 bg-red-950/20 border border-red-500/30 p-3 rounded-xl">
+                      <h4 className="font-bold text-red-400 uppercase tracking-wide flex items-center space-x-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span>4. Red Flag Danger Signs (Immediate Escalation)</span>
+                      </h4>
+                      <ul className="list-disc list-inside space-y-0.5 text-red-200/90 pl-1">
+                        {selectedVideo.clinicalGuideline.dangerSigns.map((sign, idx) => (
+                          <li key={idx}>{sign}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Referral Protocol */}
+                    <div className="space-y-1">
+                      <h4 className="font-bold text-blue-300 uppercase tracking-wide">
+                        5. Hospital Referral Protocol
+                      </h4>
+                      <p className="text-slate-300">
+                        {selectedVideo.clinicalGuideline.referralProtocol}
+                      </p>
+                    </div>
+
+                    {/* Prevention & Counseling */}
+                    <div className="space-y-1">
+                      <h4 className="font-bold text-purple-300 uppercase tracking-wide">
+                        6. Patient Self-Care & Prevention Advice
+                      </h4>
+                      <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
+                        {selectedVideo.clinicalGuideline.preventionCounseling.map(
+                          (counsel, idx) => (
+                            <li key={idx}>{counsel}</li>
+                          )
+                        )}
+                      </ul>
+                    </div>
+
+                    <p className="text-[11px] text-teal-400 font-bold pt-1">
+                      Show less ▲
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-teal-400 font-bold pt-0.5">
+                    ...Show full clinical protocol (dosages, investigations & danger signs) ▼
+                  </p>
+                )}
+              </div>
+
+              {/* ── YOUTUBE COMMENTS SECTION ── */}
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-base font-extrabold text-white">
+                    Clinical Discussion ({commentsList.length})
+                  </h3>
+                </div>
+
+                {/* Comment Input */}
+                <form onSubmit={handleAddComment} className="flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-full bg-teal-500 text-slate-950 font-extrabold text-xs flex items-center justify-center shrink-0">
+                    SN
+                  </div>
+                  <input
+                    type="text"
+                    value={userComment}
+                    onChange={(e) => setUserComment(e.target.value)}
+                    placeholder="Add a clinical question or comment on this guideline..."
+                    className="flex-1 bg-transparent border-b border-slate-700 focus:border-white text-xs sm:text-sm text-white placeholder-slate-500 py-1.5 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!userComment.trim()}
+                    className="px-4 py-1.5 rounded-full bg-white disabled:opacity-40 text-slate-950 font-bold text-xs hover:bg-slate-200 transition-colors"
+                  >
+                    Comment
+                  </button>
+                </form>
+
+                {/* Comments List */}
+                <div className="space-y-3.5 pt-2">
+                  {commentsList.map((comm, idx) => (
+                    <div key={idx} className="flex items-start space-x-3 text-xs">
+                      <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0 text-[11px]">
+                        {comm.author.charAt(0)}
+                      </div>
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-white text-xs">{comm.author}</span>
+                          <span className="text-[10px] text-slate-500">{comm.time}</span>
+                        </div>
+                        <p className="text-slate-300 leading-relaxed">{comm.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT: YOUTUBE "UP NEXT" RECOMMENDED VIDEOS SIDEBAR (4 COLUMNS) */}
+          <div className="lg:col-span-4 space-y-3">
+            <h3 className="text-sm font-bold text-slate-200 px-1">
+              Recommended Guidelines (UCG 2023)
+            </h3>
+
+            <div className="space-y-3">
+              {UCG_DISEASE_VIDEOS.filter((v) => v.id !== selectedVideo.id)
+                .slice(0, 10)
+                .map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => handleSelectVideo(item)}
+                    className="flex space-x-3 cursor-pointer group rounded-xl p-1 hover:bg-slate-900 transition-colors"
+                  >
+                    {/* Thumbnail */}
+                    <div className="relative w-36 sm:w-40 aspect-video rounded-xl overflow-hidden bg-slate-950 shrink-0">
+                      <img
+                        src={item.videoThumbnail}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <span className="absolute bottom-1 right-1 bg-black/85 text-white font-mono text-[10px] font-bold px-1.5 py-0.2 rounded">
+                        {item.videoDuration}
+                      </span>
+                    </div>
+
+                    {/* Details */}
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <h4 className="text-xs font-bold text-white line-clamp-2 leading-snug group-hover:text-teal-300 transition-colors">
+                        {item.title}
+                      </h4>
+                      <p className="text-[11px] text-slate-400 truncate flex items-center space-x-1">
+                        <span>{item.channelName.split('•')[0]}</span>
+                        <CheckCircle2 className="w-2.5 h-2.5 text-slate-400 inline" />
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        {item.views} views • {item.publishedDate}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
         </div>
       </div>
+    );
+  }
 
-      {/* Search Bar & Category Filters */}
-      <div className="space-y-3">
-        {/* Search */}
-        <div className="relative w-full">
+  // ══════════════════════════════════════════════════════════════════════
+  // VIEW 2: YOUTUBE VIDEO BROWSER / GRID VIEW (DEFAULT)
+  // ══════════════════════════════════════════════════════════════════════
+  return (
+    <div className="space-y-4 pb-28 text-white max-w-full overflow-x-hidden">
+      {/* ── TOP YOUTUBE HEADER BAR ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+        {/* YouTube Brand Badge */}
+        <div className="flex items-center space-x-2.5">
+          <div className="w-8 h-8 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-600/30">
+            <Play className="w-4 h-4 fill-white ml-0.5" />
+          </div>
+          <div>
+            <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center space-x-1.5">
+              <span>VitaNova HealthTube</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-600/20 text-red-400 border border-red-500/30">
+                UCG 2023
+              </span>
+            </h1>
+          </div>
+        </div>
+
+        {/* YouTube Search Bar */}
+        <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search talks by disease (e.g., Blood Pressure, Diabetes, Malaria)..."
+            placeholder="Search guidelines by disease or medicine (e.g., Malaria, Amlodipine, Pre-eclampsia)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-10 pr-4 py-3 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all shadow-sm"
+            className="w-full bg-slate-900 border border-slate-800 rounded-full pl-10 pr-9 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all shadow-inner"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold px-1.5 py-0.5"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
             >
-              Clear
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        {/* Category horizontal scroll */}
-        <div className="flex space-x-2 overflow-x-auto pb-1.5 scrollbar-none no-scrollbar">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all duration-200 shrink-0 ${
-                selectedCategory === cat
-                  ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
-                  : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              {cat === 'all' ? 'All Video Talks' : cat}
-            </button>
-          ))}
-        </div>
+        {/* Guideline Count Badge */}
+        <span className="hidden lg:inline text-xs font-semibold text-slate-400 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
+          24 Guidelines • MoH Uganda
+        </span>
       </div>
 
-      {/* Empty State */}
-      {filteredArticles.length === 0 && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-10 text-center space-y-3 max-w-lg mx-auto">
-          <BookOpen className="w-10 h-10 text-slate-600 mx-auto" />
-          <h3 className="text-base font-bold text-white">No video talks found</h3>
+      {/* ── YOUTUBE CATEGORY CHIPS (HORIZONTAL SCROLL) ── */}
+      <div className="flex space-x-2 overflow-x-auto pb-1.5 pt-1 scrollbar-none no-scrollbar sticky top-16 z-20 bg-slate-950/90 backdrop-blur-md py-1">
+        {categories.map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 shrink-0 ${
+              selectedCategory === cat
+                ? 'bg-white text-slate-950 shadow-md scale-105'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800/80 hover:border-slate-700'
+            }`}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      {/* ── EMPTY STATE ── */}
+      {filteredVideos.length === 0 && (
+        <div className="p-12 text-center space-y-3 bg-slate-900/50 rounded-3xl border border-slate-800 max-w-md mx-auto my-8">
+          <Search className="w-10 h-10 text-slate-600 mx-auto" />
+          <h3 className="text-base font-bold text-white">No guideline videos found</h3>
           <p className="text-xs text-slate-400">
-            We couldn't find any talks matching "{searchQuery}". Try searching for hypertension, diabetes, or malaria.
+            No disease matched "{searchQuery}". Try searching for Malaria, Hypertension, Diabetes, or Asthma.
           </p>
           <button
             onClick={() => {
               setSearchQuery('');
-              setSelectedCategory('all');
+              setSelectedCategory('All');
             }}
-            className="px-4 py-2 rounded-xl bg-teal-500 text-slate-950 text-xs font-bold hover:bg-teal-400 transition-colors"
+            className="px-4 py-2 rounded-xl bg-white text-slate-950 text-xs font-bold hover:bg-slate-200 transition-colors"
           >
-            Reset Filters
+            Reset Search
           </button>
         </div>
       )}
 
-      {/* Video Talks Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredArticles.map((article) => (
+      {/* ── YOUTUBE VIDEO GRID (MODERN YOUTUBE CARDS) ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-6">
+        {filteredVideos.map((video) => (
           <div
-            key={article.id}
-            className="bg-slate-900 rounded-3xl border border-slate-800/80 overflow-hidden hover:border-teal-500/40 transition-all duration-300 flex flex-col justify-between group shadow-lg hover:shadow-teal-500/5"
+            key={video.id}
+            onClick={() => handleSelectVideo(video)}
+            className="flex flex-col space-y-2.5 cursor-pointer group select-none"
           >
-            {/* Top Thumbnail & Video Preview */}
-            <div>
-              <div
-                className="relative cursor-pointer aspect-video overflow-hidden bg-slate-950"
-                onClick={() => handleOpenTalk(article)}
-              >
-                <img
-                  src={article.videoThumbnail || article.thumbnail}
-                  alt={article.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent"></div>
+            {/* 16:9 Thumbnail Box */}
+            <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-800/60 shadow-md group-hover:shadow-xl transition-all duration-300">
+              <img
+                src={video.videoThumbnail}
+                alt={video.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                loading="lazy"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                {/* Big Play Button Overlay */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-12 h-12 rounded-full bg-teal-500/90 text-slate-950 flex items-center justify-center shadow-xl group-hover:scale-110 group-hover:bg-teal-400 transition-transform duration-200">
-                    <Play className="w-5 h-5 fill-slate-950 ml-0.5" />
-                  </div>
-                </div>
-
-                {/* Top Badges */}
-                <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
-                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-md text-teal-300 border border-teal-500/30">
-                    {article.category}
-                  </span>
-                  {article.isDownloaded ? (
-                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/90 text-slate-950 flex items-center space-x-1 shadow-md">
-                      <CheckCircle2 className="w-3 h-3" />
-                      <span>Saved Offline</span>
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-900/80 text-slate-300 backdrop-blur-md">
-                      HD Video
-                    </span>
-                  )}
-                </div>
-
-                {/* Bottom Video Duration & Disease Badge */}
-                <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-xs text-white">
-                  <span className="bg-slate-950/90 backdrop-blur-md font-mono font-bold text-[11px] px-2 py-0.5 rounded-md flex items-center space-x-1 border border-slate-800">
-                    <Clock className="w-3 h-3 text-teal-400" />
-                    <span>{article.videoDuration || '8:00'} min talk</span>
-                  </span>
-                  <span className="text-[11px] font-bold text-amber-300 truncate max-w-[50%]">
-                    {article.diseaseName}
-                  </span>
+              {/* Center Play Button Prompt on Hover */}
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="w-12 h-12 rounded-full bg-red-600/90 text-white flex items-center justify-center shadow-2xl transform scale-75 group-hover:scale-100 transition-transform">
+                  <Play className="w-5 h-5 fill-white ml-0.5" />
                 </div>
               </div>
 
-              {/* Card Body */}
-              <div className="p-5 space-y-3.5">
-                {/* Speaker Info */}
-                <div className="flex items-center space-x-2.5">
-                  <img
-                    src={article.speakerAvatar}
-                    alt={article.speakerName}
-                    className="w-8 h-8 rounded-full object-cover border border-teal-500/40 shrink-0"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <h4 className="text-xs font-bold text-white truncate">{article.speakerName}</h4>
-                    <p className="text-[10px] text-teal-400 truncate">{article.speakerRole}</p>
-                  </div>
-                </div>
+              {/* Top-Left Level of Care Pill */}
+              <div className="absolute top-2 left-2">
+                <span className="bg-slate-950/85 backdrop-blur-md text-[10px] font-extrabold text-teal-300 px-2 py-0.5 rounded-md border border-teal-500/30">
+                  {video.levelOfCare.split('–')[0].trim()}
+                </span>
+              </div>
 
-                {/* Title only — no description */}
-                <h3
-                  onClick={() => handleOpenTalk(article)}
-                  className="text-sm sm:text-base font-bold text-white hover:text-teal-300 transition-colors cursor-pointer line-clamp-2 leading-snug break-words"
-                >
-                  {article.title}
-                </h3>
-
-                {/* Quick Outline Chips */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-medium">
-                    Causes
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-medium">
-                    Symptoms
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-medium">
-                    Ugandan Diet
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-medium">
-                    Hospital Treatment
-                  </span>
-                </div>
+              {/* Bottom-Right Duration Badge */}
+              <div className="absolute bottom-2 right-2">
+                <span className="bg-black/90 text-white font-mono font-bold text-[11px] px-2 py-0.5 rounded shadow">
+                  {video.videoDuration}
+                </span>
               </div>
             </div>
 
-            {/* Bottom Actions */}
-            <div className="p-4 pt-3 border-t border-slate-800/80 flex items-center justify-between bg-slate-950/40">
-              <button
-                onClick={() => handleOpenTalk(article)}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 flex items-center space-x-1.5 transition-colors"
-              >
-                <Play className="w-3.5 h-3.5 fill-teal-300" />
-                <span>Watch Talk</span>
-              </button>
+            {/* Below Thumbnail Details (Channel Avatar + Title + Views) */}
+            <div className="flex items-start space-x-3 px-0.5">
+              {/* Doctor / Presenter Avatar */}
+              <img
+                src={video.speakerAvatar}
+                alt={video.speakerName}
+                className="w-9 h-9 rounded-full object-cover border border-slate-700 shrink-0 mt-0.5"
+              />
 
-              <button
-                onClick={() => onToggleDownload(article.id)}
-                title={article.isDownloaded ? 'Saved in IndexedDB offline storage' : 'Save for offline watching without mobile data'}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center space-x-1.5 ${
-                  article.isDownloaded
-                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                }`}
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span className="text-[11px]">{article.isDownloaded ? 'Offline Ready' : 'Download'}</span>
-              </button>
+              {/* Text Block */}
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <h3 className="text-xs sm:text-sm font-bold text-white line-clamp-2 leading-snug group-hover:text-teal-400 transition-colors">
+                  {video.title}
+                </h3>
+                <p className="text-[11px] text-slate-400 flex items-center space-x-1">
+                  <span className="truncate">{video.channelName.split('•')[0]}</span>
+                  <CheckCircle2 className="w-3 h-3 text-slate-400 shrink-0" />
+                </p>
+                <div className="text-[11px] text-slate-500 flex items-center space-x-1">
+                  <span>{video.views} views</span>
+                  <span>•</span>
+                  <span>{video.publishedDate}</span>
+                </div>
+              </div>
             </div>
           </div>
         ))}
       </div>
-
-      {/* FULLSCREEN VIDEO TALK & DISEASE BREAKDOWN MODAL */}
-      {selectedArticle && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-3xl my-auto overflow-hidden shadow-2xl flex flex-col max-h-[94vh]">
-            {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950 shrink-0">
-              <div className="flex items-center space-x-2.5 min-w-0">
-                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 shrink-0">
-                  {selectedArticle.category}
-                </span>
-                <span className="text-xs font-bold text-amber-300 truncate">
-                  {selectedArticle.diseaseName}
-                </span>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => onToggleDownload(selectedArticle.id)}
-                  className={`p-2 rounded-xl text-xs border transition-colors ${
-                    selectedArticle.isDownloaded
-                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                  }`}
-                  title={selectedArticle.isDownloaded ? 'Cached for offline' : 'Download talk'}
-                >
-                  <Download className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setSelectedArticle(null)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable Content Container */}
-            <div className="overflow-y-auto flex-1 p-4 sm:p-6 space-y-6">
-              {/* Interactive Video Player */}
-              <div className="relative rounded-2xl overflow-hidden bg-black aspect-video border border-slate-800 shadow-xl group">
-                <img
-                  src={selectedArticle.videoThumbnail || selectedArticle.thumbnail}
-                  alt={selectedArticle.title}
-                  className={`w-full h-full object-cover transition-opacity duration-300 ${
-                    isPlaying ? 'opacity-70' : 'opacity-90'
-                  }`}
-                />
-
-                {/* Animated Doctor Video Call / Speaking Overlay */}
-                <div className="absolute inset-0 flex flex-col justify-between p-3 sm:p-4 pointer-events-none">
-                  {/* Top Doctor Indicator */}
-                  <div className="flex items-center justify-between">
-                    <div className="bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center space-x-2 border border-slate-800">
-                      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-                      <span className="text-xs font-bold text-white">{selectedArticle.speakerName}</span>
-                      <span className="text-[10px] text-teal-400">({selectedArticle.speakerRole})</span>
-                    </div>
-
-                    <div className="bg-teal-950/80 text-teal-300 border border-teal-500/30 px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold">
-                      {isPlaying ? 'PLAYING HD' : 'PAUSED'}
-                    </div>
-                  </div>
-
-                  {/* Center Play/Pause button on pause */}
-                  {!isPlaying && (
-                    <div className="flex items-center justify-center">
-                      <div className="w-14 h-14 rounded-full bg-teal-500 text-slate-950 flex items-center justify-center shadow-2xl">
-                        <Play className="w-6 h-6 fill-slate-950 ml-1" />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Live Caption / Topic Banner */}
-                  <div className="bg-slate-950/85 backdrop-blur-md p-2.5 rounded-xl border border-slate-800/80 max-w-xl">
-                    <p className="text-[11px] sm:text-xs text-slate-200 line-clamp-2">
-                      🗣️ <span className="text-teal-300 font-semibold">{selectedArticle.speakerName}:</span> "In our clinical experience across Uganda, early understanding of {selectedArticle.diseaseName} prevents 80% of complications."
-                    </p>
-                  </div>
-                </div>
-
-                {/* Video Controls Bar */}
-                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950 via-slate-950/90 to-transparent p-3 pt-6 flex flex-col space-y-2">
-                  {/* Progress Scrubber */}
-                  <div className="w-full bg-slate-800/80 h-1.5 rounded-full overflow-hidden cursor-pointer">
-                    <div
-                      className="bg-teal-400 h-full rounded-full transition-all duration-300"
-                      style={{ width: `${playbackProgress}%` }}
-                    ></div>
-                  </div>
-
-                  {/* Buttons */}
-                  <div className="flex items-center justify-between text-xs text-white">
-                    <div className="flex items-center space-x-3">
-                      <button
-                        onClick={() => setIsPlaying(!isPlaying)}
-                        className="p-1.5 hover:text-teal-400 transition-colors"
-                      >
-                        {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white" />}
-                      </button>
-
-                      <button
-                        onClick={() => setIsMuted(!isMuted)}
-                        className="p-1.5 hover:text-teal-400 transition-colors"
-                      >
-                        {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
-                      </button>
-
-                      <span className="font-mono text-[11px] text-slate-400">
-                        {Math.floor((playbackProgress / 100) * 8)}:
-                        {String(Math.floor(((playbackProgress / 100) * 480) % 60)).padStart(2, '0')}{' '}
-                        / {selectedArticle.videoDuration || '08:45'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <span className="text-[10px] text-emerald-400 font-semibold hidden sm:inline">
-                        1080p Crystal Audio
-                      </span>
-                      <button
-                        onClick={() => {
-                          const elem = document.fullscreenElement;
-                          if (!elem) {
-                            document.documentElement.requestFullscreen?.().catch(() => {});
-                          }
-                        }}
-                        className="p-1.5 hover:text-teal-400 transition-colors"
-                      >
-                        <Maximize2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Talk Title & Speaker Strip */}
-              <div className="space-y-2">
-                <h2 className="text-lg sm:text-2xl font-black text-white leading-tight break-words">
-                  {selectedArticle.title}
-                </h2>
-                <div className="flex flex-wrap items-center gap-3 pt-1">
-                  <div className="flex items-center space-x-2">
-                    <img
-                      src={selectedArticle.speakerAvatar}
-                      alt={selectedArticle.speakerName}
-                      className="w-9 h-9 rounded-full object-cover border border-teal-500/50"
-                    />
-                    <div>
-                      <p className="text-xs font-bold text-white">{selectedArticle.speakerName}</p>
-                      <p className="text-[11px] text-teal-400">{selectedArticle.speakerRole}</p>
-                    </div>
-                  </div>
-
-                  {onConsultDoctor && (
-                    <button
-                      onClick={() => {
-                        onConsultDoctor(selectedArticle.speakerName);
-                        setSelectedArticle(null);
-                      }}
-                      className="ml-auto px-3 py-1.5 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold flex items-center space-x-1.5 transition-colors"
-                    >
-                      <Stethoscope className="w-3.5 h-3.5" />
-                      <span>Ask Dr. Mukasa a Question</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Disease Deep-Dive Navigation Tabs */}
-              <div className="border-b border-slate-800">
-                <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-none no-scrollbar">
-                  {[
-                    { id: 'overview', label: '1. Overview' },
-                    { id: 'causes', label: '2. Causes & Risks' },
-                    { id: 'symptoms', label: '3. Symptoms' },
-                    { id: 'prevention', label: '4. Prevention & Diet' },
-                    { id: 'treatment', label: '5. Hospital Treatment' }
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveContentTab(tab.id as any)}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                        activeContentTab === tab.id
-                          ? 'bg-teal-500 text-slate-950 font-extrabold shadow-sm'
-                          : 'bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tab Contents: Properly fit on phone screen with word-wrapping and clear readability */}
-              <div className="space-y-4">
-                {/* 1. OVERVIEW */}
-                {activeContentTab === 'overview' && (
-                  <div className="space-y-4">
-                    <div className="p-4 sm:p-5 rounded-2xl bg-slate-800/60 border border-slate-700/80 space-y-2">
-                      <h4 className="text-xs font-bold text-teal-400 uppercase tracking-wider flex items-center space-x-1.5">
-                        <HeartPulse className="w-4 h-4" />
-                        <span>Clinical Overview & Ugandan Context</span>
-                      </h4>
-                      <p className="text-xs sm:text-sm text-slate-200 leading-relaxed break-words">
-                        {selectedArticle.talkContent.overview}
-                      </p>
-                    </div>
-
-                    {/* Summary Card */}
-                    <div className="p-4 rounded-2xl bg-teal-950/20 border border-teal-500/20 space-y-1.5">
-                      <h5 className="text-xs font-bold text-teal-300">Why this video talk matters for your family:</h5>
-                      <p className="text-xs text-slate-300 leading-relaxed break-words">
-                        {selectedArticle.summary}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* 2. CAUSES */}
-                {activeContentTab === 'causes' && (
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <h4 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
-                        Primary Causes & Risk Factors in Uganda
-                      </h4>
-                    </div>
-                    <div className="grid grid-cols-1 gap-2.5">
-                      {selectedArticle.talkContent.causes.map((cause, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3.5 rounded-2xl bg-slate-800/50 border border-slate-800 flex items-start space-x-3"
-                        >
-                          <span className="w-6 h-6 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                            {idx + 1}
-                          </span>
-                          <p className="text-xs sm:text-sm text-slate-200 leading-relaxed break-words flex-1">
-                            {cause}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 3. SYMPTOMS */}
-                {activeContentTab === 'symptoms' && (
-                  <div className="space-y-3">
-                    <h4 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
-                      Signs & Symptoms to Watch Out For
-                    </h4>
-                    <div className="grid grid-cols-1 gap-2.5">
-                      {selectedArticle.talkContent.symptoms.map((symptom, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3.5 rounded-2xl bg-slate-800/50 border border-slate-800 flex items-start space-x-3"
-                        >
-                          <div className="w-2 h-2 rounded-full bg-amber-400 shrink-0 mt-2"></div>
-                          <p className="text-xs sm:text-sm text-slate-200 leading-relaxed break-words flex-1">
-                            {symptom}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 4. PREVENTION & LOCAL DIET */}
-                {activeContentTab === 'prevention' && (
-                  <div className="space-y-3">
-                    <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30">
-                      <h4 className="text-xs sm:text-sm font-bold text-emerald-300 uppercase tracking-wider flex items-center space-x-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                        <span>Ugandan Dietary Practices & Prevention Tips</span>
-                      </h4>
-                    </div>
-                    <div className="grid grid-cols-1 gap-2.5">
-                      {selectedArticle.talkContent.prevention.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3.5 rounded-2xl bg-slate-800/60 border border-slate-700/80 flex items-start space-x-3"
-                        >
-                          <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
-                          <p className="text-xs sm:text-sm text-slate-200 leading-relaxed break-words flex-1">
-                            {item}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 5. TREATMENT & HOSPITAL PROTOCOL */}
-                {activeContentTab === 'treatment' && (
-                  <div className="space-y-4">
-                    <div className="p-3 rounded-xl bg-teal-950/40 border border-teal-500/40">
-                      <h4 className="text-xs sm:text-sm font-bold text-teal-300 uppercase tracking-wider flex items-center space-x-1.5">
-                        <Stethoscope className="w-4 h-4 text-teal-400 shrink-0" />
-                        <span>Medical Care, Medications & Hospital Treatment</span>
-                      </h4>
-                    </div>
-                    <div className="grid grid-cols-1 gap-2.5">
-                      {selectedArticle.talkContent.treatment.map((tx, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3.5 rounded-2xl bg-slate-800/50 border border-slate-800 flex items-start space-x-3"
-                        >
-                          <span className="w-5 h-5 rounded-full bg-teal-500/20 text-teal-300 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                            ✓
-                          </span>
-                          <p className="text-xs sm:text-sm text-slate-200 leading-relaxed break-words flex-1">
-                            {tx}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* EMERGENCY WARNING BOX (Always visible on all tabs at the bottom) */}
-                <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 space-y-2 mt-4">
-                  <div className="flex items-center space-x-2 text-rose-400">
-                    <ShieldAlert className="w-4 h-4 shrink-0" />
-                    <h5 className="text-xs font-bold uppercase tracking-wider">
-                      When to Go Directly to Hospital Emergency
-                    </h5>
-                  </div>
-                  <p className="text-xs text-rose-200 leading-relaxed break-words">
-                    {selectedArticle.talkContent.whenToSeekEmergency}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Bottom Bar */}
-            <div className="p-4 border-t border-slate-800 bg-slate-950 flex items-center justify-between shrink-0">
-              <button
-                onClick={() => setSelectedArticle(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
-              >
-                Close Talk
-              </button>
-
-              <button
-                onClick={() => onToggleDownload(selectedArticle.id)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all ${
-                  selectedArticle.isDownloaded
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'bg-teal-500 text-slate-950 hover:bg-teal-400'
-                }`}
-              >
-                <Download className="w-4 h-4" />
-                <span>{selectedArticle.isDownloaded ? 'Downloaded Offline' : 'Download for Offline Study'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
+
 export default EducationView;

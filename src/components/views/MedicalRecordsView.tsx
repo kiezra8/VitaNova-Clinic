@@ -468,7 +468,8 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
             <img
               src={patient.profileImage || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80'}
               alt={patient.fullName}
-              className="w-13 h-13 rounded-2xl object-cover border-2 border-teal-500/40 shrink-0 shadow-md"
+              className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover border-2 border-teal-500/40 shrink-0 shadow-sm"
+              style={{ width: '48px', height: '48px' }}
             />
             <div>
               <div className="flex flex-wrap items-center gap-2">
