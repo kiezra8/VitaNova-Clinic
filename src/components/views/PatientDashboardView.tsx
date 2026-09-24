@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { PatientProfile, VitalRecord, CarePlan, HomeCareRequest, HealthcareWorker } from '../../types';
 import { NavTab } from '../layout/Navigation';
+import { KiEzraAvatarPlayer } from './KiEzraAvatarPlayer';
 
 interface DashboardProps {
   patient: PatientProfile;
@@ -375,7 +376,10 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* ── 4. CARE TEAM ─────────────────────────────────────────────── */}
+      {/* ── 4. AI AVATAR VIDEO ────────────────────────────────────────── */}
+      <KiEzraAvatarPlayer onNavigateToEducation={() => onNavigate('education')} />
+
+      {/* ── 5. CARE TEAM ─────────────────────────────────────────────── */}
       <div className="space-y-2.5">
         <div className="flex items-center justify-between px-0.5">
           <h2 className="text-sm font-bold text-white">Your Care Team</h2>
@@ -451,7 +455,7 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* ── 5. CARE PLAN & NEXT VISIT ─────────────────────────────────── */}
+      {/* ── 6. CARE PLAN & NEXT VISIT ─────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Next Home Visit */}
         <div className="rounded-2xl overflow-hidden border border-slate-800 shadow-md">
