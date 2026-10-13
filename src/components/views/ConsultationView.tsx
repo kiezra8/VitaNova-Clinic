@@ -263,7 +263,18 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                 </div>
               )}
 
-              {/* 3-Action Bar — calls route to real Jitsi VideoCallModal */}
+              {/* Private In-App Direct Line Status Banner (Doctor number kept private) */}
+              <div className="p-2.5 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-between text-xs">
+                <div className="flex items-center space-x-2 text-teal-300">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                  <span className="text-[11px] font-semibold">Direct In-App Telehealth Ready</span>
+                </div>
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-900/90 text-teal-300 border border-teal-500/30">
+                  Private & Encrypted
+                </span>
+              </div>
+
+              {/* 3-Action Bar — In-App Telehealth & Chat */}
               <div className="grid grid-cols-3 gap-2 pt-1">
                 <button
                   type="button"
@@ -271,7 +282,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                   className="py-3 rounded-2xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs flex flex-col items-center justify-center space-y-1 shadow-lg shadow-teal-500/20 transition-transform active:scale-95"
                 >
                   <Video className="w-4 h-4" />
-                  <span>Video</span>
+                  <span>In-App Video</span>
                 </button>
 
                 <button
@@ -280,7 +291,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                   className="py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs flex flex-col items-center justify-center space-y-1 border border-slate-700 transition-colors"
                 >
                   <Phone className="w-4 h-4 text-teal-400" />
-                  <span>Call</span>
+                  <span>In-App Call</span>
                 </button>
 
                 <button

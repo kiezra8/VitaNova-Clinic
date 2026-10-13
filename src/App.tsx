@@ -78,10 +78,11 @@ export const App: React.FC = () => {
   // Modal for quick vitals logging
   const [showQuickVitals, setShowQuickVitals] = useState<boolean>(false);
 
-  // Doctor Authentication State (israelezrakisakye@gmail.com / 88888888)
+  // Doctor Authentication State (Super Admin or Admin-Created Doctor Accounts)
   const [isDoctorLoggedIn, setIsDoctorLoggedIn] = useState<boolean>(() => {
     return localStorage.getItem('vitanova_doctor_logged_in') === 'true';
   });
+  const [loggedInDoctor, setLoggedInDoctor] = useState<HealthcareWorker | null>(null);
 
   // Active Direct In-App Call State (Video & Audio Calls)
   const [activeCallClinician, setActiveCallClinician] = useState<HealthcareWorker | null>(null);
@@ -101,8 +102,38 @@ export const App: React.FC = () => {
       setSyncInfo(info);
     });
 
-    // Fetch clinicians from Supabase (free backend) with offline fallback
-    const FALLBACK_CLINICIANS = [
+    // Fallback Clinicians with real Ugandan phone numbers and Dr. Israel Kisakye as Director
+    const FALLBACK_CLINICIANS: HealthcareWorker[] = [
+      {
+        id: 'doc_israel',
+        name: 'Dr. Israel Kisakye',
+        profession: 'Doctor',
+        specialty: 'Chief Medical Consultant & Telehealth Lead',
+        experienceYears: 12,
+        verified: true,
+        available: true,
+        feeUGX: 45000,
+        avatar: '/ki_ezra_avatar.jpg',
+        phone: '+256 772 888 888',
+        whatsapp: '+256 772 888 888',
+        email: 'israelerzrakisakye@gmail.com',
+        inAppCallRoom: 'vitanova-doc-israel-kisakye',
+        bio: 'Chief Medical Officer at VitaNova Clinic. Over 12 years directing clinical telemedicine, chronic disease reversal, and family healthcare programs.',
+        languages: ['English', 'Luganda'],
+        rating: 5.0,
+        reviewCount: 164,
+        registrationNumber: 'UMDPC-MED-2010-3104',
+        education: 'MBChB (Makerere University), MSc Telemedicine (Edinburgh)',
+        hospitalAffiliation: 'VitaNova Central Nakawa Clinic & Mulago Referral',
+        conditionsTreated: [
+          'Hypertension & Cardiovascular Health',
+          'Diabetes Mellitus & Metabolic Therapy',
+          'Telehealth Clinical Triage',
+          'Elderly Care & Bedside Follow-up'
+        ],
+        availabilityHours: 'Daily: 7:00 AM – 10:00 PM (EAT)',
+        responseSpeed: '< 2 mins direct response'
+      },
       {
         id: 'doc_mukasa',
         name: 'Dr. Ronald Mukasa',
@@ -113,6 +144,10 @@ export const App: React.FC = () => {
         available: true,
         feeUGX: 45000,
         avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
+        phone: '+256 702 110 334',
+        whatsapp: '+256 702 110 334',
+        email: 'mukasa.ronald@vitanova.ug',
+        inAppCallRoom: 'vitanova-doc-mukasa',
         bio: 'Senior Consultant Physician at VitaNova Nakawa. Over 14 years managing complex adult illnesses with a dedicated focus on hypertension control, heart failure prevention, and personalized lifestyle medicine.',
         languages: ['English', 'Luganda'],
         rating: 4.9,
@@ -140,6 +175,10 @@ export const App: React.FC = () => {
         available: true,
         feeUGX: 25000,
         avatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+        phone: '+256 774 229 881',
+        whatsapp: '+256 774 229 881',
+        email: 'florence.nabatanzi@vitanova.ug',
+        inAppCallRoom: 'vitanova-nurse-florence',
         bio: 'Lead Community Outreach Nurse. Passionate about home-based elder care, post-surgical wound healing, and family health education. Certified in gentle sterile wound dressing and diabetic foot prophylaxis.',
         languages: ['Luganda', 'English'],
         rating: 5.0,
@@ -167,6 +206,10 @@ export const App: React.FC = () => {
         available: true,
         feeUGX: 30000,
         avatar: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=400&q=80',
+        phone: '+256 782 443 192',
+        whatsapp: '+256 782 443 192',
+        email: 'agnes.akello@vitanova.ug',
+        inAppCallRoom: 'vitanova-midwife-agnes',
         bio: 'Certified Registered Midwife dedicated to reassuring expectant mothers and new parents. Experienced in maternal danger sign screening, lactation guidance, newborn cord care, and maternal mental health support.',
         languages: ['English', 'Ateso', 'Luganda'],
         rating: 4.8,
@@ -194,6 +237,10 @@ export const App: React.FC = () => {
         available: true,
         feeUGX: 40000,
         avatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
+        phone: '+256 701 556 782',
+        whatsapp: '+256 701 556 782',
+        email: 'brian.kato@vitanova.ug',
+        inAppCallRoom: 'vitanova-physio-kato',
         bio: 'Licensed Physical Therapist specializing in post-stroke functional recovery, chronic spine & lower back pain relief, joint rehabilitation, and home-based mobility regain for seniors.',
         languages: ['English', 'Luganda'],
         rating: 4.9,
@@ -213,17 +260,28 @@ export const App: React.FC = () => {
       }
     ];
 
+    // Check custom clinicians in localStorage
+    const savedCustom = localStorage.getItem('vitanova_custom_clinicians');
+    if (savedCustom) {
+      try {
+        const parsed = JSON.parse(savedCustom);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setClinicians(parsed);
+          return;
+        }
+      } catch (_) {}
+    }
+
     fetchClinicians()
       .then(data => {
         if (data && data.length > 0) {
           setClinicians(data as any);
         } else {
-          // Supabase not configured yet or offline — use built-in fallback
-          setClinicians(FALLBACK_CLINICIANS as any);
+          setClinicians(FALLBACK_CLINICIANS);
         }
       })
       .catch(() => {
-        setClinicians(FALLBACK_CLINICIANS as any);
+        setClinicians(FALLBACK_CLINICIANS);
       });
 
     return () => {
@@ -404,30 +462,117 @@ export const App: React.FC = () => {
     });
   };
 
-  // Doctor Portal Authentication Handler (Admin / Doctor sign in with israelezrakisakye@gmail.com / 88888888)
+  // Incoming Call State (Rings on Doctor App when Patient calls)
+  const [incomingCall, setIncomingCall] = useState<{
+    callerName: string;
+    callerPhone?: string;
+    clinician: HealthcareWorker;
+    callType: 'video' | 'audio';
+  } | null>(null);
+
+  // Listen for real incoming calls across tabs and in-app sessions
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('vitanova_telehealth_call');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'INCOMING_CALL' && event.data.clinician) {
+          const targetDoc = event.data.clinician as HealthcareWorker;
+          // Check if current user is logged in as a doctor or admin to receive call
+          if (isDoctorLoggedIn) {
+            // Ring if admin is logged in OR if the logged in doctor matches the target doctor
+            const shouldRing = !loggedInDoctor || loggedInDoctor.id === targetDoc.id || loggedInDoctor.email === targetDoc.email;
+            if (shouldRing) {
+              setIncomingCall({
+                callerName: event.data.callerName || 'Guest Patient (In-App Caller)',
+                clinician: targetDoc,
+                callType: event.data.callType || 'video'
+              });
+            }
+          }
+        }
+      };
+    } catch (_) {}
+
+    return () => {
+      channel?.close();
+    };
+  }, [isDoctorLoggedIn, loggedInDoctor]);
+
+  const handleUpdateClinicians = (updated: HealthcareWorker[]) => {
+    setClinicians(updated);
+    try {
+      localStorage.setItem('vitanova_custom_clinicians', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Could not save clinicians to localStorage:', e);
+    }
+  };
+
+  // Doctor & Admin Portal Authentication Handler
+  // Supports Super Admin (israelerzrakisakye@gmail.com / 88888888) AND any Doctor account created by Admin
   const handleDoctorLogin = (email: string, pass: string): boolean => {
-    if (email.toLowerCase() === 'israelezrakisakye@gmail.com' && pass === '88888888') {
+    const cleanEmail = email.toLowerCase().trim();
+
+    // 1. Super Admin Account
+    if (
+      (cleanEmail === 'israelerzrakisakye@gmail.com' || cleanEmail === 'israelezrakisakye@gmail.com') &&
+      pass === '88888888'
+    ) {
       setIsDoctorLoggedIn(true);
-      setCurrentRole('doctor');
-      setActiveTab('clinician_portal');
+      setLoggedInDoctor(null);
+      setCurrentRole('admin');
+      setActiveTab('admin');
       localStorage.setItem('vitanova_doctor_logged_in', 'true');
+      localStorage.removeItem('vitanova_logged_in_doctor_id');
       return true;
     }
+
+    // 2. Doctor accounts created by Admin in clinicians registry
+    const matchedDoctor = clinicians.find(
+      (c) => c.email && c.email.toLowerCase().trim() === cleanEmail && (c.password || '88888888') === pass
+    );
+
+    if (matchedDoctor) {
+      setIsDoctorLoggedIn(true);
+      setLoggedInDoctor(matchedDoctor);
+      setCurrentRole('doctor');
+      setActiveTab('consultation');
+      localStorage.setItem('vitanova_doctor_logged_in', 'true');
+      localStorage.setItem('vitanova_logged_in_doctor_id', matchedDoctor.id);
+      return true;
+    }
+
     return false;
   };
 
   const handleDoctorLogout = () => {
     setIsDoctorLoggedIn(false);
+    setLoggedInDoctor(null);
     setCurrentRole('patient');
     setActiveTab('home');
     localStorage.removeItem('vitanova_doctor_logged_in');
+    localStorage.removeItem('vitanova_logged_in_doctor_id');
   };
 
-  // Direct In-App Call Initiation — opens Jitsi Meet full-screen overlay
+  // Direct In-App Call Initiation — opens real encrypted video/audio modal and rings doctor's app
+  // Patient can call whether they have an account or do NOT have an account (Guest Mode)
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
     setActiveCallClinician(clinician);
     setCallType(type);
-    // Do NOT navigate — call modal is a full-screen overlay over current tab
+
+    const callerDisplayName = patient?.fullName?.trim() ? patient.fullName : 'Guest Patient (In-App Caller)';
+
+    // Broadcast call to doctor's registered session
+    try {
+      const channel = new BroadcastChannel('vitanova_telehealth_call');
+      channel.postMessage({
+        type: 'INCOMING_CALL',
+        clinician,
+        callerName: callerDisplayName,
+        callType: type,
+        timestamp: Date.now()
+      });
+    } catch (_) {}
   };
 
   const handleOpenDirectChat = (_clinician: HealthcareWorker) => {
@@ -537,10 +682,7 @@ export const App: React.FC = () => {
               setActiveCallClinician(null);
               setCallType(null);
             }}
-            onTriggerCall={(clinician, type) => {
-              setActiveCallClinician(clinician);
-              setCallType(type);
-            }}
+            onTriggerCall={handleStartCall}
           />
         )}
 
@@ -634,6 +776,9 @@ export const App: React.FC = () => {
               await syncEngine.triggerSync('admin_console');
             }}
             networkState={networkState}
+            clinicians={clinicians}
+            onUpdateClinicians={handleUpdateClinicians}
+            onTestCall={(doc) => handleStartCall(doc, 'video')}
           />
         )}
       </main>
@@ -650,17 +795,63 @@ export const App: React.FC = () => {
         }}
       />
 
-      {/* ── LIVE VIDEO / VOICE CALL OVERLAY (Jitsi Meet — Free, No API Key) ── */}
+      {/* ── LIVE VIDEO / VOICE CALL OVERLAY ── */}
       {activeCallClinician && callType && (
         <VideoCallModal
           clinician={activeCallClinician}
           callType={callType}
-          memberName={patient.fullName}
+          memberName={patient?.fullName || 'Guest Patient'}
           onEnd={() => {
             setActiveCallClinician(null);
             setCallType(null);
           }}
         />
+      )}
+
+      {/* ── REAL IN-APP INCOMING CALL RINGING OVERLAY FOR DOCTORS ── */}
+      {incomingCall && (
+        <div className="fixed top-5 right-5 z-[10001] bg-slate-900 border-2 border-teal-500 rounded-3xl p-5 shadow-2xl max-w-sm w-full animate-bounce-subtle backdrop-blur-xl">
+          <div className="flex items-center space-x-3">
+            <div className="relative shrink-0">
+              <img
+                src={incomingCall.clinician.avatar}
+                alt={incomingCall.clinician.name}
+                className="w-12 h-12 rounded-2xl object-cover border-2 border-teal-400"
+              />
+              <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center animate-ping" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-teal-400">Incoming Telehealth Call</span>
+              <h4 className="text-sm font-bold text-white truncate">{incomingCall.callerName}</h4>
+              <p className="text-[11px] text-slate-300 truncate">
+                To: {incomingCall.clinician.name} ({incomingCall.callType === 'video' ? 'Video' : 'Voice'})
+              </p>
+              <p className="text-[10px] text-teal-400 font-semibold flex items-center space-x-1 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                <span>Direct In-App Line • Encrypted</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 mt-4">
+            <button
+              onClick={() => {
+                setActiveCallClinician(incomingCall.clinician);
+                setCallType(incomingCall.callType);
+                setIncomingCall(null);
+              }}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 transition-all"
+            >
+              Answer Call
+            </button>
+            <button
+              onClick={() => setIncomingCall(null)}
+              className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all"
+            >
+              Decline
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

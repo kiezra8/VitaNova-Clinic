@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   // Doctor Sign In Modal State
   const [showDoctorLoginModal, setShowDoctorLoginModal] = useState<boolean>(false);
-  const [loginEmail, setLoginEmail] = useState<string>('israelezrakisakye@gmail.com');
+  const [loginEmail, setLoginEmail] = useState<string>('israelerzrakisakye@gmail.com');
   const [loginPassword, setLoginPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -96,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
       setShowDoctorLoginModal(false);
       setLoginPassword('');
     } else {
-      setLoginError('Invalid credentials. Use israelezrakisakye@gmail.com and password 88888888.');
+      setLoginError('Invalid credentials. Sign in with Admin (israelerzrakisakye@gmail.com / 88888888) or any Doctor account created by the Admin.');
     }
   };
 

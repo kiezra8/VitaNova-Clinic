@@ -19,7 +19,14 @@ import {
   Activity,
   Sparkles,
   ShieldCheck,
-  FileText
+  FileText,
+  Upload,
+  Plus,
+  Trash2,
+  Camera,
+  Video,
+  Share2,
+  ExternalLink
 } from 'lucide-react';
 import { HealthEducationArticle } from '../../types';
 import { DISEASE_VIDEOS, DiseaseVideoItem } from '../../data/diseaseVideos';
@@ -47,6 +54,7 @@ const CATEGORY_THEMES: Record<string, { primary: string; accent: string; glow: s
   'Eye and Ear Diseases':           { primary: '#4ade80', accent: '#16a34a', glow: 'rgba(74,222,128,0.5)',  hue: 143 },
   'Autoimmune Diseases':            { primary: '#facc15', accent: '#ca8a04', glow: 'rgba(250,204,21,0.5)',  hue: 48 },
   'Nutritional Deficiency Diseases': { primary: '#a3e635', accent: '#65a30d', glow: 'rgba(163,230,53,0.5)',  hue: 80 },
+  'Community Health & Wellness':    { primary: '#2dd4bf', accent: '#0d9488', glow: 'rgba(45,212,191,0.5)',  hue: 174 },
 };
 
 function getTheme(category: string) {
@@ -82,7 +90,18 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   const theme = useMemo(() => getTheme(video.category), [video.category]);
-  const guideline = video.clinicalGuideline;
+  const guideline = useMemo(() => {
+    return video.clinicalGuideline || {
+      caseDefinition: video.summary || 'Clinical overview and educational health guidelines.',
+      diagnosticCriteria: ['Targeted clinical evaluation and symptom history', 'Physical examination and vital assessment'],
+      investigations: ['Baseline diagnostic tests and lab workup', 'Routine clinical review'],
+      firstLineMedicines: ['Standard Uganda Ministry of Health approved regimen'],
+      treatmentProtocol: ['Follow prescribed medications, optimal hydration, and regular follow-up'],
+      dangerSigns: ['Sudden severe chest pain, extreme breathlessness, or loss of consciousness'],
+      referralProtocol: 'Immediate transfer to nearest VitaNova emergency center or referral hospital',
+      preventionCounseling: ['Maintain balanced nutrition, routine screening, and lifestyle vigilance']
+    };
+  }, [video]);
 
   // Build authentic 4-stage clinical masterclass slides from Uganda Clinical Guidelines 2023
   const clinicalStages = useMemo(() => [
@@ -297,10 +316,10 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
       onTouchStart={resetHideTimer}
       className="fixed inset-0 z-[9999] bg-black flex items-center justify-center select-none overflow-hidden"
     >
-      {/* ── REAL VIDEO PLAYER (K.I EZRA FROM GENESIS OF OUR JOURNEY) ── */}
+      {/* ── REAL VIDEO PLAYER (PLAYS USER GALLERY VIDEO OR GENESIS OF OUR JOURNEY) ── */}
       <video
         ref={videoRef}
-        src="/genesis_video.mp4"
+        src={video.videoUrl || "/genesis_video.mp4"}
         playsInline
         autoPlay
         muted={isMuted}
@@ -551,7 +570,7 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
   );
 };
 
-// ── MAIN EDUCATION VIEW (BROWSER FEED) ────────────────────────────────────
+// ── MAIN EDUCATION VIEW (BROWSER FEED & GALLERY VIDEO UPLOAD) ────────────
 export const EducationView: React.FC<EducationViewProps> = ({
   articles,
   onToggleDownload,
@@ -561,8 +580,37 @@ export const EducationView: React.FC<EducationViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Gallery Videos uploaded from device
+  const [galleryVideos, setGalleryVideos] = useState<DiseaseVideoItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('vitanova_gallery_videos');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Modal State for Posting Videos from Gallery
+  const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string>('');
+  const [postTitle, setPostTitle] = useState<string>('');
+  const [postDisease, setPostDisease] = useState<string>('');
+  const [postCategory, setPostCategory] = useState<string>('Community Health & Wellness');
+  const [postSpeaker, setPostSpeaker] = useState<string>('Dr. Israel Kisakye');
+  const [postSpeakerRole, setPostSpeakerRole] = useState<string>('Lead Clinical Consultant');
+  const [postSummary, setPostSummary] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [uploadSuccess, setUploadSuccess] = useState<boolean>(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const thumbInputRef = useRef<HTMLInputElement>(null);
+
   const categories = [
     'All',
+    'Community Health & Wellness',
     'Infectious Diseases',
     'Cardiovascular Diseases',
     'Respiratory Diseases',
@@ -580,75 +628,228 @@ export const EducationView: React.FC<EducationViewProps> = ({
     'Nutritional Deficiency Diseases'
   ];
 
+  // Combined Videos: Custom Gallery Videos first, then built-in DISEASE_VIDEOS
+  const allAvailableVideos = useMemo(() => {
+    return [...galleryVideos, ...DISEASE_VIDEOS];
+  }, [galleryVideos]);
+
   const filteredVideos = useMemo(() => {
-    return DISEASE_VIDEOS.filter((vid) => {
+    return allAvailableVideos.filter((vid) => {
       const catMatch = selectedCategory === 'All' || vid.category === selectedCategory;
       if (!searchQuery.trim()) return catMatch;
       const q = searchQuery.toLowerCase();
       return catMatch && (
         vid.diseaseName.toLowerCase().includes(q) ||
         vid.category.toLowerCase().includes(q) ||
-        vid.title.toLowerCase().includes(q)
+        vid.title.toLowerCase().includes(q) ||
+        (vid.speakerName && vid.speakerName.toLowerCase().includes(q))
       );
     });
-  }, [selectedCategory, searchQuery]);
+  }, [allAvailableVideos, selectedCategory, searchQuery]);
+
+  // Handle Video File Selection from Device Gallery
+  const handleSelectVideoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setVideoFile(file);
+      const url = URL.createObjectURL(file);
+      setVideoPreviewUrl(url);
+      if (!postTitle) {
+        // Auto-fill title from filename without extension
+        const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+        setPostTitle(cleanName);
+        setPostDisease(cleanName);
+      }
+    }
+  };
+
+  // Handle Thumbnail File Selection
+  const handleSelectThumbnailFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setThumbnailFile(file);
+      const url = URL.createObjectURL(file);
+      setThumbnailPreviewUrl(url);
+    }
+  };
+
+  // Submit and Post Gallery Video
+  const handlePostVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!videoPreviewUrl && !videoFile) {
+      alert('Please select a video from your gallery.');
+      return;
+    }
+    if (!postTitle.trim()) {
+      alert('Please enter a title for the video.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const newVideoItem: DiseaseVideoItem = {
+        id: `gallery_vid_${Date.now()}`,
+        title: postTitle.trim(),
+        diseaseName: postDisease.trim() || postTitle.trim(),
+        category: postCategory,
+        summary: postSummary.trim() || 'Uploaded clinical talk and patient health education.',
+        videoDuration: '3:20',
+        durationSeconds: 200,
+        views: '1',
+        publishedDate: 'Just now',
+        channelName: 'VitaNova Gallery',
+        speakerName: postSpeaker.trim() || 'VitaNova Clinician',
+        speakerRole: postSpeakerRole.trim() || 'Healthcare Staff',
+        speakerAvatar: '/ki_ezra_avatar.jpg',
+        videoThumbnail: thumbnailPreviewUrl || '/genesis_thumb.jpg',
+        videoUrl: videoPreviewUrl,
+        audioUrl: '',
+        levelOfCare: 'Health Centre III to National Referral',
+        diseaseClass: 'Community Gallery Video',
+        clinicalGuideline: {
+          caseDefinition: postSummary.trim() || `${postTitle} clinical video education.`,
+          diagnosticCriteria: [
+            'Clinical evaluation and screening',
+            'Patient history and physical examination'
+          ],
+          investigations: [
+            'Comprehensive diagnostic workup',
+            'Routine organ function and vital monitoring'
+          ],
+          firstLineMedicines: [
+            'Uganda Clinical Guidelines first-line approved treatment regimen'
+          ],
+          treatmentProtocol: [
+            'Adhere to clinical recommendations, adequate rest, and therapeutic hydration'
+          ],
+          dangerSigns: [
+            'Sudden deterioration in vital signs or severe respiratory distress'
+          ],
+          referralProtocol: 'Immediate referral to nearest VitaNova emergency center or referral hospital',
+          preventionCounseling: [
+            'Adhere to preventive counseling and follow-up clinical appointments'
+          ]
+        },
+        videoSlides: [
+          {
+            title: postTitle,
+            timing: '0:00',
+            keyPoints: [postSummary.trim() || 'Community clinical masterclass', 'Uganda MOH Guidelines standard'],
+            badge: 'Gallery Video • Key Guidance'
+          }
+        ]
+      };
+
+      const updated = [newVideoItem, ...galleryVideos];
+      setGalleryVideos(updated);
+
+      // Persist to localStorage (save lightweight metadata)
+      try {
+        localStorage.setItem('vitanova_gallery_videos', JSON.stringify(updated));
+      } catch (err) {
+        console.warn('Could not persist full video object to localStorage:', err);
+      }
+
+      setUploadSuccess(true);
+      setTimeout(() => {
+        setUploadSuccess(false);
+        setShowUploadModal(false);
+        // Reset form
+        setVideoFile(null);
+        setVideoPreviewUrl('');
+        setThumbnailFile(null);
+        setThumbnailPreviewUrl('');
+        setPostTitle('');
+        setPostDisease('');
+        setPostSummary('');
+      }, 1200);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Delete User-Uploaded Video
+  const handleDeleteGalleryVideo = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm('Are you sure you want to remove this video from your gallery?')) {
+      const updated = galleryVideos.filter(v => v.id !== id);
+      setGalleryVideos(updated);
+      try {
+        localStorage.setItem('vitanova_gallery_videos', JSON.stringify(updated));
+      } catch (_) {}
+    }
+  };
 
   return (
     <>
-      {/* ── WHEN A VIDEO IS TAPPED: ONLY THE VIDEO IS ON THE SCREEN ── */}
+      {/* ── WHEN A VIDEO IS TAPPED: FULLSCREEN IMMERSIVE PLAYER ── */}
       {activeVideo && (
         <FullscreenVideoPlayer
           video={activeVideo}
-          allVideos={DISEASE_VIDEOS}
+          allVideos={allAvailableVideos}
           onClose={() => setActiveVideo(null)}
           onSelectVideo={(v) => setActiveVideo(v)}
         />
       )}
 
       {/* ── YOUTUBE BROWSE GRID (WHEN NO VIDEO IS OPEN) ── */}
-      <div className="space-y-4 pb-28 text-white max-w-full overflow-x-hidden">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-red-600 flex items-center justify-center text-white shadow-lg shadow-red-600/30">
-              <Play className="w-5 h-5 fill-white ml-0.5" />
+      <div className="space-y-5 pb-28 text-white max-w-full overflow-x-hidden">
+        {/* Top Header Bar */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-1 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-4 sm:p-5 rounded-3xl border border-slate-800/80 shadow-xl">
+          <div className="flex items-center space-x-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-500 flex items-center justify-center text-white shadow-lg shadow-red-600/30 shrink-0">
+              <Play className="w-6 h-6 fill-white ml-0.5" />
             </div>
             <div>
-              <h1 className="text-lg sm:text-xl font-black text-white tracking-tight">
-                VitaNova HealthTube
-              </h1>
-              <p className="text-[11px] text-slate-400">
-                213 Diseases • Uganda Clinical Guidelines 2023 • K.I Ezra
+              <div className="flex items-center space-x-2">
+                <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                  VitaNova HealthTube
+                </h1>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
+                  Live Feed
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Official Uganda Clinical Guidelines 2023 & Community Gallery
               </p>
             </div>
           </div>
 
-          {/* Search */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder={`Search all ${DISEASE_VIDEOS.length} diseases (Malaria, TB, Diabetes)...`}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-full pl-10 pr-9 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500 transition-colors"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+          {/* Right Action: Search & Post Video from Gallery Button */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            {/* Search Input */}
+            <div className="relative flex-1 sm:w-64 md:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search videos (Malaria, TB, Diabetes)..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-slate-950/80 border border-slate-800 rounded-full pl-10 pr-9 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
-          <span className="hidden lg:inline text-xs font-semibold text-slate-400 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
-            {filteredVideos.length} videos
-          </span>
+            {/* Post Video from Gallery Button */}
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center justify-center space-x-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-teal-500 to-emerald-400 hover:from-teal-400 hover:to-emerald-300 text-slate-950 text-xs font-black shadow-lg shadow-teal-500/20 transition-all active:scale-95 shrink-0"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Post Video from Gallery</span>
+            </button>
+          </div>
         </div>
 
-        {/* Category Chips */}
+        {/* Category Chips Bar */}
         <div className="flex space-x-2 overflow-x-auto pb-1.5 scrollbar-none no-scrollbar sticky top-16 z-20 bg-slate-950/95 backdrop-blur-md py-1">
           {categories.map((cat) => {
             const theme = getTheme(cat);
@@ -659,8 +860,8 @@ export const EducationView: React.FC<EducationViewProps> = ({
                 onClick={() => setSelectedCategory(cat)}
                 className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 shrink-0 ${
                   isActive
-                    ? 'text-black shadow-md scale-105'
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800/80'
+                    ? 'text-slate-950 shadow-md scale-105'
+                    : 'bg-slate-900/90 hover:bg-slate-800 text-slate-300 border border-slate-800/80'
                 }`}
                 style={isActive ? { background: cat === 'All' ? '#ffffff' : theme.primary } : {}}
               >
@@ -670,7 +871,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
           })}
         </div>
 
-        {/* Empty State */}
+        {/* Empty Search State */}
         {filteredVideos.length === 0 && (
           <div className="p-12 text-center space-y-3 bg-slate-900/50 rounded-3xl border border-slate-800 max-w-md mx-auto my-8">
             <Search className="w-10 h-10 text-slate-600 mx-auto" />
@@ -688,112 +889,320 @@ export const EducationView: React.FC<EducationViewProps> = ({
           </div>
         )}
 
-        {/* ── 16:9 VIDEO GRID (LIKE YOUTUBE) ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-6">
+        {/* ── REDESIGNED PREMIUM VIDEO CARDS GRID ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {filteredVideos.map((vid) => {
             const theme = getTheme(vid.category);
+            const isGalleryUpload = vid.id.startsWith('gallery_vid_');
+
             return (
-              <button
+              <div
                 key={vid.id}
                 onClick={() => setActiveVideo(vid)}
-                className="flex flex-col space-y-2.5 text-left group select-none focus:outline-none"
+                className="group relative flex flex-col rounded-3xl bg-slate-900/80 border border-slate-800/80 hover:border-slate-700 overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 cursor-pointer select-none"
+                style={{
+                  boxShadow: `0 4px 20px -2px rgba(0, 0, 0, 0.5)`
+                }}
               >
-                {/* 16:9 Video Thumbnail */}
+                {/* 16:9 High-Def Video Thumbnail Container */}
                 <div
-                  className="relative aspect-video rounded-2xl overflow-hidden border border-slate-800/80 shadow-md group-hover:shadow-2xl transition-all duration-300"
-                  style={{ background: `hsl(${theme.hue}, 40%, 8%)` }}
+                  className="relative aspect-video w-full overflow-hidden bg-slate-950"
+                  style={{ background: `hsl(${theme.hue}, 40%, 6%)` }}
                 >
                   <img
-                    src={vid.videoThumbnail}
+                    src={vid.videoThumbnail || '/genesis_thumb.jpg'}
                     alt={vid.diseaseName}
-                    className="w-full h-full object-cover group-hover:scale-108 transition-transform duration-500 opacity-80"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-85"
                     loading="lazy"
                   />
 
-                  {/* Gradient Tint */}
+                  {/* Elegant Gradient Vignette */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
                   <div
-                    className="absolute inset-0 opacity-30"
-                    style={{ background: `linear-gradient(135deg, ${theme.primary}60, transparent 65%)` }}
+                    className="absolute inset-0 opacity-20 pointer-events-none"
+                    style={{ background: `linear-gradient(135deg, ${theme.primary}60, transparent 70%)` }}
                   />
 
-                  {/* Disease Name in Center */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center p-3">
-                    <div
-                      className="px-3 py-1.5 rounded-xl text-center backdrop-blur-md"
-                      style={{ background: 'rgba(3, 7, 18, 0.8)', border: `1px solid ${theme.primary}50` }}
-                    >
-                      <p className="text-xs sm:text-sm font-black text-white leading-tight">
-                        {vid.diseaseName}
-                      </p>
-                      <p className="text-[9px] font-semibold text-emerald-400">
-                        Uganda Guidelines 2023
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Hover Play Button */}
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div
-                      className="w-14 h-14 rounded-full flex items-center justify-center shadow-2xl scale-75 group-hover:scale-100 transition-transform"
-                      style={{ background: theme.primary, boxShadow: `0 0 35px ${theme.glow}` }}
-                    >
-                      <Play className="w-6 h-6 fill-black text-black ml-0.5" />
-                    </div>
-                  </div>
-
-                  {/* Duration */}
-                  <div className="absolute bottom-2 right-2">
-                    <span className="bg-black/90 text-white font-mono font-bold text-[10px] px-2 py-0.5 rounded">
-                      {vid.videoDuration}
-                    </span>
-                  </div>
-
-                  {/* Category badge */}
-                  <div className="absolute top-2 left-2">
+                  {/* Floating Category Tag (Top Left) */}
+                  <div className="absolute top-2.5 left-2.5 z-10 flex items-center space-x-1.5">
                     <span
-                      className="text-[9px] font-extrabold px-2 py-0.5 rounded-md"
+                      className="text-[10px] font-extrabold px-2.5 py-1 rounded-full backdrop-blur-md shadow-md"
                       style={{
-                        background: `${theme.primary}25`,
+                        background: 'rgba(3, 7, 18, 0.75)',
                         color: theme.primary,
-                        border: `1px solid ${theme.primary}60`
+                        border: `1px solid ${theme.primary}50`
                       }}
                     >
                       {vid.category.split(' ')[0]}
                     </span>
-                  </div>
-                </div>
-
-                {/* Below Thumbnail info */}
-                <div className="flex items-start space-x-2.5 px-0.5">
-                  <div
-                    className="w-9 h-9 rounded-full overflow-hidden border-2 shrink-0 shadow"
-                    style={{ borderColor: theme.primary }}
-                  >
-                    <img src={vid.speakerAvatar} alt="K.I Ezra" className="w-full h-full object-cover" />
+                    {isGalleryUpload && (
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/90 text-slate-950 shadow-md flex items-center space-x-1">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        <span>Gallery Video</span>
+                      </span>
+                    )}
                   </div>
 
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <h3 className="text-xs sm:text-sm font-bold text-white line-clamp-2 leading-snug group-hover:text-red-400 transition-colors">
-                      {vid.diseaseName}: Clinical Masterclass
-                    </h3>
-                    <p className="text-[11px] text-slate-400 flex items-center space-x-1">
-                      <span>K.I Ezra</span>
-                      <CheckCircle2 className="w-3 h-3 text-slate-500 shrink-0" />
-                    </p>
-                    <div className="text-[11px] text-slate-500 flex items-center space-x-1 font-medium">
-                      <span>{vid.views} views</span>
-                      <span>•</span>
-                      <span>{vid.publishedDate}</span>
+                  {/* Delete button for user's gallery uploaded videos (Top Right) */}
+                  {isGalleryUpload && (
+                    <button
+                      onClick={(e) => handleDeleteGalleryVideo(vid.id, e)}
+                      title="Remove from Gallery"
+                      className="absolute top-2.5 right-2.5 z-20 p-1.5 rounded-full bg-slate-950/80 hover:bg-rose-600 text-slate-300 hover:text-white border border-slate-700/80 transition-all shadow-md"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {/* Duration Pill (Bottom Right) */}
+                  <div className="absolute bottom-2.5 right-2.5 z-10">
+                    <span className="bg-black/85 text-white font-mono font-bold text-[10px] px-2 py-0.5 rounded-md border border-white/10 shadow-md">
+                      {vid.videoDuration || '3:20'}
+                    </span>
+                  </div>
+
+                  {/* Center Glowing Play Button on Hover */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
+                    <div
+                      className="w-13 h-13 rounded-full flex items-center justify-center text-slate-950 shadow-2xl scale-75 group-hover:scale-100 transition-transform duration-300"
+                      style={{
+                        background: theme.primary,
+                        boxShadow: `0 0 30px ${theme.glow}`
+                      }}
+                    >
+                      <Play className="w-6 h-6 fill-slate-950 ml-0.5" />
                     </div>
                   </div>
                 </div>
-              </button>
+
+                {/* Card Information Body */}
+                <div className="p-4 flex flex-col justify-between flex-1 space-y-3 bg-slate-900/60">
+                  <div className="space-y-1.5">
+                    {/* Disease / Masterclass Title */}
+                    <h3 className="text-sm font-bold text-white line-clamp-2 leading-snug group-hover:text-teal-300 transition-colors">
+                      {vid.title}
+                    </h3>
+
+                    {/* Disease Tag */}
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[11px] font-semibold text-slate-400">
+                        {vid.diseaseName}
+                      </span>
+                      <span className="text-slate-600 text-[10px]">•</span>
+                      <span className="text-[10px] font-medium text-emerald-400">
+                        Uganda MOH
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Speaker and Meta Row */}
+                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <div
+                        className="w-7 h-7 rounded-full overflow-hidden border shrink-0"
+                        style={{ borderColor: theme.primary }}
+                      >
+                        <img
+                          src={vid.speakerAvatar || '/ki_ezra_avatar.jpg'}
+                          alt={vid.speakerName}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-slate-200 truncate flex items-center space-x-1">
+                          <span>{vid.speakerName}</span>
+                          <CheckCircle2 className="w-3 h-3 text-teal-400 shrink-0" />
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          {vid.publishedDate}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-teal-500 text-slate-300 hover:text-slate-950 font-bold text-[10px] transition-colors border border-slate-700 shrink-0"
+                    >
+                      Watch
+                    </button>
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
       </div>
+
+      {/* ── MODAL: POST VIDEO FROM GALLERY ── */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl w-full max-w-xl p-5 sm:p-6 space-y-4 shadow-2xl my-8">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center border border-teal-500/30">
+                  <Video className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Post Video from Gallery</h3>
+                  <p className="text-[11px] text-slate-400">Share a clinical talk or health guidance video</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {uploadSuccess ? (
+              <div className="p-8 text-center space-y-3">
+                <div className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <h4 className="text-base font-bold text-white">Video Published to Gallery!</h4>
+                <p className="text-xs text-slate-400">Your video is now live on VitaNova HealthTube.</p>
+              </div>
+            ) : (
+              <form onSubmit={handlePostVideo} className="space-y-4 text-xs">
+                {/* Video File Picker Zone */}
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1.5">
+                    Select Video from Your Gallery *
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="video/*"
+                    onChange={handleSelectVideoFile}
+                    className="hidden"
+                  />
+
+                  {videoPreviewUrl ? (
+                    <div className="space-y-2">
+                      <div className="relative rounded-2xl overflow-hidden border border-teal-500/50 bg-black aspect-video max-h-48">
+                        <video
+                          src={videoPreviewUrl}
+                          controls
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-emerald-400 font-semibold truncate max-w-xs">
+                          ✓ {videoFile?.name || 'Selected Gallery Video'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-teal-400 hover:underline font-bold"
+                        >
+                          Change Video
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed border-slate-700 hover:border-teal-400/60 rounded-2xl p-6 text-center cursor-pointer transition-all bg-slate-950/50 hover:bg-slate-800/40 space-y-2"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-teal-500/10 text-teal-400 flex items-center justify-center mx-auto border border-teal-500/20">
+                        <Upload className="w-6 h-6" />
+                      </div>
+                      <p className="font-bold text-white">Click or tap to choose video from device gallery</p>
+                      <p className="text-[11px] text-slate-400">Supports MP4, WebM, MOV, 3GP, AVI (from phone or camera roll)</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Form Fields Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Video Title *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Hypertension Prevention & Nutrition"
+                      value={postTitle}
+                      onChange={(e) => setPostTitle(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Disease / Health Topic</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. High Blood Pressure, Child Health"
+                      value={postDisease}
+                      onChange={(e) => setPostDisease(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Clinical Category</label>
+                    <select
+                      value={postCategory}
+                      onChange={(e) => setPostCategory(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    >
+                      {categories.filter(c => c !== 'All').map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Presenter / Doctor Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Dr. Israel Kisakye"
+                      value={postSpeaker}
+                      onChange={(e) => setPostSpeaker(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Summary / Clinical Advice */}
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Clinical Summary / Key Points</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Brief explanation of the symptoms, medication, or wellness tips discussed..."
+                    value={postSummary}
+                    onChange={(e) => setPostSummary(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+
+                {/* Modal Actions */}
+                <div className="pt-2 flex items-center justify-end space-x-2.5 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowUploadModal(false)}
+                    className="px-4 py-2 rounded-xl text-slate-400 hover:text-white font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !videoPreviewUrl}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-400 hover:from-teal-400 hover:to-emerald-300 disabled:opacity-50 text-slate-950 font-black shadow-lg shadow-teal-500/20 transition-transform active:scale-95 flex items-center space-x-1.5"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{isSubmitting ? 'Posting...' : 'Post Video Now'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 };
 
 export default EducationView;
+

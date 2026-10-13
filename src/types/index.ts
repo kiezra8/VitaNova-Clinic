@@ -103,6 +103,11 @@ export interface HealthcareWorker {
   languages: string[];
   rating: number;
   reviewCount: number;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  password?: string;
+  inAppCallRoom?: string;
   registrationNumber?: string;
   education?: string;
   hospitalAffiliation?: string;

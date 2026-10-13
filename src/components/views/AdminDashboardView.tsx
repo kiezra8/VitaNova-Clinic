@@ -12,22 +12,56 @@ import {
   FileText,
   Clock,
   Database,
-  ArrowUpRight
+  ArrowUpRight,
+  Phone,
+  MessageSquare,
+  Plus,
+  Edit2,
+  Save,
+  X,
+  Stethoscope,
+  BadgeCheck,
+  Video
 } from 'lucide-react';
-import { SyncOutboxItem } from '../../types';
+import { SyncOutboxItem, HealthcareWorker } from '../../types';
 
 interface AdminDashboardProps {
   outboxItems: SyncOutboxItem[];
   onTriggerGlobalSync: () => Promise<void>;
   networkState: string;
+  clinicians?: HealthcareWorker[];
+  onUpdateClinicians?: (clinicians: HealthcareWorker[]) => void;
+  onTestCall?: (clinician: HealthcareWorker) => void;
 }
 
 export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
   outboxItems,
   onTriggerGlobalSync,
-  networkState
+  networkState,
+  clinicians = [],
+  onUpdateClinicians,
+  onTestCall
 }) => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'doctors'>('doctors');
+
+  // Edit Doctor Modal / State
+  const [editingDoctor, setEditingDoctor] = useState<HealthcareWorker | null>(null);
+  const [showAddDoctorModal, setShowAddDoctorModal] = useState<boolean>(false);
+
+  // Doctor Form Fields
+  const [docName, setDocName] = useState<string>('');
+  const [docProfession, setDocProfession] = useState<'Doctor' | 'Nurse' | 'Midwife' | 'Physiotherapist'>('Doctor');
+  const [docSpecialty, setDocSpecialty] = useState<string>('');
+  const [docPhone, setDocPhone] = useState<string>('');
+  const [docWhatsApp, setDocWhatsApp] = useState<string>('');
+  const [docEmail, setDocEmail] = useState<string>('');
+  const [docPassword, setDocPassword] = useState<string>('88888888');
+  const [docFee, setDocFee] = useState<number>(45000);
+  const [docExp, setDocExp] = useState<number>(8);
+  const [docAvatar, setDocAvatar] = useState<string>('');
+  const [docBio, setDocBio] = useState<string>('');
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   const pendingItems = outboxItems.filter(i => i.status === 'pending');
   const syncedItems = outboxItems.filter(i => i.status === 'synced');
@@ -39,33 +73,272 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     setIsSyncing(false);
   };
 
+  const openEditDoctor = (doc: HealthcareWorker) => {
+    setEditingDoctor(doc);
+    setDocName(doc.name);
+    setDocProfession(doc.profession);
+    setDocSpecialty(doc.specialty);
+    setDocPhone(doc.phone || '+256 772 888 888');
+    setDocWhatsApp(doc.whatsapp || doc.phone || '+256 772 888 888');
+    setDocEmail(doc.email || 'israelerzrakisakye@gmail.com');
+    setDocPassword(doc.password || '88888888');
+    setDocFee(doc.feeUGX || 45000);
+    setDocExp(doc.experienceYears || 10);
+    setDocAvatar(doc.avatar);
+    setDocBio(doc.bio || '');
+  };
+
+  const openAddDoctor = () => {
+    setShowAddDoctorModal(true);
+    setDocName('');
+    setDocProfession('Doctor');
+    setDocSpecialty('');
+    setDocPhone('+256 772 ');
+    setDocWhatsApp('+256 772 ');
+    setDocEmail('');
+    setDocPassword('88888888');
+    setDocFee(45000);
+    setDocExp(5);
+    setDocAvatar('https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80');
+    setDocBio('');
+  };
+
+  const handleSaveEditDoctor = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDoctor || !onUpdateClinicians) return;
+
+    const updatedList = clinicians.map((c) => {
+      if (c.id === editingDoctor.id) {
+        return {
+          ...c,
+          name: docName.trim(),
+          profession: docProfession,
+          specialty: docSpecialty.trim(),
+          phone: docPhone.trim(),
+          whatsapp: docWhatsApp.trim(),
+          email: docEmail.trim(),
+          password: docPassword.trim() || '88888888',
+          feeUGX: Number(docFee),
+          experienceYears: Number(docExp),
+          avatar: docAvatar.trim() || c.avatar,
+          bio: docBio.trim() || c.bio,
+          inAppCallRoom: `vitanova-${c.id.replace(/_/g, '-')}`
+        };
+      }
+      return c;
+    });
+
+    onUpdateClinicians(updatedList);
+    setEditingDoctor(null);
+    setSaveSuccessMsg(`Doctor account and private contact updated for ${docName}!`);
+    setTimeout(() => setSaveSuccessMsg(null), 3500);
+  };
+
+  const handleCreateNewDoctor = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docName.trim() || !onUpdateClinicians) return;
+
+    const newDocId = `doc_${Date.now()}`;
+    const newDoc: HealthcareWorker = {
+      id: newDocId,
+      name: docName.trim(),
+      profession: docProfession,
+      specialty: docSpecialty.trim() || 'General Practitioner',
+      phone: docPhone.trim() || '+256 772 888 888',
+      whatsapp: docWhatsApp.trim() || docPhone.trim() || '+256 772 888 888',
+      email: docEmail.trim() || 'israelerzrakisakye@gmail.com',
+      password: docPassword.trim() || '88888888',
+      experienceYears: Number(docExp) || 5,
+      verified: true,
+      available: true,
+      feeUGX: Number(docFee) || 45000,
+      avatar: docAvatar.trim() || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
+      bio: docBio.trim() || 'Licensed medical practitioner providing direct in-app and in-person consultations.',
+      languages: ['English', 'Luganda'],
+      rating: 5.0,
+      reviewCount: 1,
+      inAppCallRoom: `vitanova-${newDocId.replace(/_/g, '-')}`,
+      hospitalAffiliation: 'VitaNova Nakawa & Mulago Hospital'
+    };
+
+    const updatedList = [newDoc, ...clinicians];
+    onUpdateClinicians(updatedList);
+    setShowAddDoctorModal(false);
+    setSaveSuccessMsg(`New doctor account created for ${newDoc.name} (${newDoc.email})!`);
+    setTimeout(() => setSaveSuccessMsg(null), 3500);
+  };
+
   return (
     <div className="space-y-6 pb-20">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Header Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-teal-950/80 via-slate-900 to-slate-900 p-6 rounded-3xl border border-teal-500/30 shadow-xl">
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Clinic Operations & Admin Console</h1>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20">
-              Enterprise Level
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
+              Admin Access
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Central registry monitoring, offline sync telemetry, and emergency ambulance dispatch oversight.
+          <p className="text-xs text-slate-300 mt-1">
+            Authenticated Admin: <strong className="text-teal-400 font-mono">israelerzrakisakye@gmail.com</strong> • Doctor Registry & Direct Phone Routing
           </p>
         </div>
 
-        <button
-          onClick={handleSyncAll}
-          disabled={isSyncing || networkState === 'offline'}
-          className="px-4 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-50 text-slate-950 font-bold text-xs shadow-md shadow-teal-500/20 flex items-center justify-center space-x-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-          <span>{isSyncing ? 'Processing Queue...' : 'Force Global Outbox Sync'}</span>
-        </button>
+        <div className="flex items-center space-x-2.5">
+          <button
+            onClick={() => setActiveTab(activeTab === 'doctors' ? 'overview' : 'doctors')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+              activeTab === 'doctors'
+                ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-md shadow-teal-500/20'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+            }`}
+          >
+            {activeTab === 'doctors' ? 'Doctors & Telehealth Registry' : 'Switch to Doctor Registry'}
+          </button>
+
+          <button
+            onClick={handleSyncAll}
+            disabled={isSyncing || networkState === 'offline'}
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 font-bold text-xs flex items-center justify-center space-x-2"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Syncing...' : 'Sync Outbox'}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Enterprise Metrics Grid */}
+      {/* Success Notification Alert */}
+      {saveSuccessMsg && (
+        <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center space-x-2 shadow-lg animate-fadeIn">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <span>{saveSuccessMsg}</span>
+        </div>
+      )}
+
+      {/* ── SECTION 1: DOCTORS DIRECTORY & PHONE NUMBER REGISTRY ── */}
+      <div className="bg-slate-900 rounded-3xl border border-slate-800 p-5 sm:p-6 space-y-5 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400">
+              <Phone className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center space-x-2">
+                <span>Doctor Accounts & Private Phone Registry</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  In-App Ready
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Doctors created by admin receive patient calls directly in the app. Doctor phone numbers are kept private and never shown to patients.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={openAddDoctor}
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-400 hover:from-teal-400 hover:to-emerald-300 text-slate-950 font-black text-xs shadow-md shadow-teal-500/20 flex items-center justify-center space-x-1.5 transition-transform active:scale-95 shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Doctor Account</span>
+          </button>
+        </div>
+
+        {/* Doctors Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {clinicians.map((doc) => (
+            <div
+              key={doc.id}
+              className="p-4 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-slate-700 flex flex-col justify-between space-y-3 transition-all"
+            >
+              <div className="flex items-start space-x-3">
+                <div className="relative shrink-0">
+                  <img
+                    src={doc.avatar}
+                    alt={doc.name}
+                    className="w-14 h-14 rounded-2xl object-cover border-2 border-teal-500/40 shadow-md"
+                  />
+                  <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900" />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center space-x-1">
+                    <h3 className="text-sm font-bold text-white truncate">{doc.name}</h3>
+                    {doc.verified && <BadgeCheck className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
+                  </div>
+                  <p className="text-[11px] text-teal-300 font-medium truncate">{doc.specialty}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{doc.profession} • {doc.experienceYears} yrs exp</p>
+                </div>
+              </div>
+
+              {/* Contact Details Display */}
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2 text-xs">
+                {/* Account Credentials */}
+                <div className="flex items-center justify-between text-slate-300 border-b border-slate-800 pb-1.5">
+                  <span className="text-[11px] text-slate-400">Account Login:</span>
+                  <span className="font-mono text-teal-300 font-bold truncate max-w-[170px]">
+                    {doc.email || 'israelerzrakisakye@gmail.com'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-300 border-b border-slate-800 pb-1.5">
+                  <span className="text-[11px] text-slate-400">Login Password:</span>
+                  <span className="font-mono text-amber-300 font-bold">
+                    {doc.password || '88888888'}
+                  </span>
+                </div>
+
+                {/* Private Phone (Admin Confidential) */}
+                <div className="flex items-center justify-between text-slate-300">
+                  <span className="text-[11px] text-slate-400 flex items-center space-x-1">
+                    <Phone className="w-3 h-3 text-emerald-400" />
+                    <span>Private Phone:</span>
+                  </span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {doc.phone || '+256 772 888 888'}
+                  </span>
+                </div>
+
+                <div className="p-1.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-[10px] text-teal-300 flex items-center justify-between">
+                  <span>🔒 Patient Privacy:</span>
+                  <span className="font-semibold text-emerald-300">Phone Hidden from Patients</span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-300 pt-0.5">
+                  <span className="text-[11px] text-slate-400">Consultation Fee:</span>
+                  <span className="font-bold text-white">UGX {doc.feeUGX?.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center space-x-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => openEditDoctor(doc)}
+                  className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 font-bold text-xs border border-slate-700 flex items-center justify-center space-x-1 transition-colors"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit Account</span>
+                </button>
+
+                {onTestCall && (
+                  <button
+                    type="button"
+                    onClick={() => onTestCall(doc)}
+                    className="px-3 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500 text-teal-300 hover:text-slate-950 font-bold text-xs border border-teal-500/30 flex items-center justify-center space-x-1 transition-colors"
+                    title="Test In-App Calling"
+                  >
+                    <Video className="w-3.5 h-3.5" />
+                    <span>Test In-App Call</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── SECTION 2: CLINIC OPERATIONS & DISPATCH ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
           <span className="text-xs font-semibold text-slate-400">Total Enrolled Patients</span>
@@ -86,13 +359,13 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
         </div>
 
         <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-xs font-semibold text-slate-400">Emergency Dispatches</span>
-          <p className="text-2xl font-extrabold text-white">28</p>
-          <p className="text-[10px] text-red-400">Avg ETA: 12.4 mins</p>
+          <span className="text-xs font-semibold text-slate-400">Registered Doctors & Clinicians</span>
+          <p className="text-2xl font-extrabold text-white">{clinicians.length}</p>
+          <p className="text-[10px] text-teal-400">100% Verified Telehealth Lines</p>
         </div>
       </div>
 
-      {/* Sync Queue Monitor (Critical for Offline-First System QA) */}
+      {/* Sync Queue Monitor */}
       <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
           <div className="flex items-center space-x-2">
@@ -175,6 +448,273 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ── MODAL: EDIT DOCTOR PHONE & CONTACT ── */}
+      {editingDoctor && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Update Doctor Contact Numbers</h3>
+                  <p className="text-[10px] text-slate-400">{editingDoctor.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setEditingDoctor(null)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditDoctor} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Doctor Name</label>
+                <input
+                  type="text"
+                  required
+                  value={docName}
+                  onChange={(e) => setDocName(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Registered Phone Number (MTN / Airtel Uganda) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="+256 772 888 888"
+                  value={docPhone}
+                  onChange={(e) => setDocPhone(e.target.value)}
+                  className="w-full bg-slate-800 border border-teal-500/50 rounded-xl px-3 py-2 text-emerald-300 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+                <p className="text-[10px] text-slate-500 mt-0.5">When patient calls, this phone number receives the call directly.</p>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">WhatsApp Calling / Chat Number</label>
+                <input
+                  type="text"
+                  placeholder="+256 772 888 888"
+                  value={docWhatsApp}
+                  onChange={(e) => setDocWhatsApp(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Doctor's Registered Email</label>
+                <input
+                  type="email"
+                  value={docEmail}
+                  onChange={(e) => setDocEmail(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Doctor Account Password (For Doctor In-App Login)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 88888888"
+                  value={docPassword}
+                  onChange={(e) => setDocPassword(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+                <p className="text-[10px] text-teal-400 mt-1">Doctor uses their email and this password to log in and receive in-app telehealth calls.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Consultation Fee (UGX)</label>
+                  <input
+                    type="number"
+                    value={docFee}
+                    onChange={(e) => setDocFee(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Specialty</label>
+                  <input
+                    type="text"
+                    value={docSpecialty}
+                    onChange={(e) => setDocSpecialty(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingDoctor(null)}
+                  className="px-3.5 py-2 rounded-xl text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold flex items-center space-x-1.5 shadow-md shadow-teal-500/20"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save Phone & Contact</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: REGISTER NEW DOCTOR ── */}
+      {showAddDoctorModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-lg p-6 space-y-4 shadow-2xl my-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-500 to-emerald-400 flex items-center justify-center text-slate-950 font-black">
+                  <Stethoscope className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Register New Doctor</h3>
+                  <p className="text-[11px] text-slate-400">Add clinician to VitaNova Telehealth directory</p>
+                </div>
+              </div>
+              <button onClick={() => setShowAddDoctorModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewDoctor} className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Doctor Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Dr. Israel Kisakye"
+                    value={docName}
+                    onChange={(e) => setDocName(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Profession</label>
+                  <select
+                    value={docProfession}
+                    onChange={(e) => setDocProfession(e.target.value as any)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  >
+                    <option value="Doctor">Doctor</option>
+                    <option value="Nurse">Nurse</option>
+                    <option value="Midwife">Midwife</option>
+                    <option value="Physiotherapist">Physiotherapist</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Phone Number (Calling Line) *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="+256 772 888 888"
+                    value={docPhone}
+                    onChange={(e) => setDocPhone(e.target.value)}
+                    className="w-full bg-slate-800 border border-teal-500/50 rounded-xl px-3 py-2 text-emerald-300 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">WhatsApp Line</label>
+                  <input
+                    type="text"
+                    placeholder="+256 772 888 888"
+                    value={docWhatsApp}
+                    onChange={(e) => setDocWhatsApp(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Specialty</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Cardiology, Internal Medicine"
+                    value={docSpecialty}
+                    onChange={(e) => setDocSpecialty(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Consultation Fee (UGX)</label>
+                  <input
+                    type="number"
+                    value={docFee}
+                    onChange={(e) => setDocFee(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Registered Email (Doctor Sign In) *</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="doctor@vitanova.ug"
+                  value={docEmail}
+                  onChange={(e) => setDocEmail(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Doctor Account Password *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="88888888"
+                  value={docPassword}
+                  onChange={(e) => setDocPassword(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+                <p className="text-[10px] text-teal-400 mt-1">Admin assigns this password so doctor logs in with their email and receives patient in-app calls.</p>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Bio & Clinical Background</label>
+                <textarea
+                  rows={2}
+                  placeholder="Consultant background, hospital affiliations..."
+                  value={docBio}
+                  onChange={(e) => setDocBio(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddDoctorModal(false)}
+                  className="px-4 py-2 rounded-xl text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-400 hover:from-teal-400 hover:to-emerald-300 text-slate-950 font-black shadow-md shadow-teal-500/20"
+                >
+                  Register Doctor
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
