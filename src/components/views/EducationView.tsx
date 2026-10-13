@@ -628,9 +628,9 @@ export const EducationView: React.FC<EducationViewProps> = ({
     'Nutritional Deficiency Diseases'
   ];
 
-  // Combined Videos: Custom Gallery Videos first, then built-in DISEASE_VIDEOS
+  // Only show user-uploaded gallery videos — no AI-generated or built-in disease videos
   const allAvailableVideos = useMemo(() => {
-    return [...galleryVideos, ...DISEASE_VIDEOS];
+    return [...galleryVideos];
   }, [galleryVideos]);
 
   const filteredVideos = useMemo(() => {
@@ -798,20 +798,20 @@ export const EducationView: React.FC<EducationViewProps> = ({
         {/* Top Header Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-1 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-4 sm:p-5 rounded-3xl border border-slate-800/80 shadow-xl">
           <div className="flex items-center space-x-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-500 flex items-center justify-center text-white shadow-lg shadow-red-600/30 shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-teal-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-teal-500/30 shrink-0">
               <Play className="w-6 h-6 fill-white ml-0.5" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
                 <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                  VitaNova HealthTube
+                  VitaNova Health Videos
                 </h1>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
-                  Live Feed
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                  {allAvailableVideos.length} Video{allAvailableVideos.length !== 1 ? 's' : ''}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Official Uganda Clinical Guidelines 2023 & Community Gallery
+                Clinic-posted health education videos — uploaded directly by VitaNova staff
               </p>
             </div>
           </div>
@@ -871,21 +871,39 @@ export const EducationView: React.FC<EducationViewProps> = ({
           })}
         </div>
 
-        {/* Empty Search State */}
+        {/* Empty state — no videos yet or no matching search */}
         {filteredVideos.length === 0 && (
-          <div className="p-12 text-center space-y-3 bg-slate-900/50 rounded-3xl border border-slate-800 max-w-md mx-auto my-8">
-            <Search className="w-10 h-10 text-slate-600 mx-auto" />
-            <h3 className="text-base font-bold text-white">No disease videos found</h3>
-            <p className="text-xs text-slate-400">Try searching for Malaria, Tuberculosis, Asthma, or Hypertension.</p>
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setSelectedCategory('All');
-              }}
-              className="px-4 py-2 rounded-xl bg-white text-slate-950 text-xs font-bold"
-            >
-              Reset Filters
-            </button>
+          <div className="p-12 text-center space-y-4 bg-slate-900/50 rounded-3xl border border-dashed border-slate-700 max-w-md mx-auto my-8">
+            <div className="w-16 h-16 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center mx-auto">
+              <Play className="w-8 h-8 text-teal-400" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">
+                {allAvailableVideos.length === 0
+                  ? 'No videos posted yet'
+                  : 'No matching videos'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                {allAvailableVideos.length === 0
+                  ? 'Post your first health video from your gallery. Only clinic-uploaded videos appear here.'
+                  : 'Try a different search or category filter.'}
+              </p>
+            </div>
+            {searchQuery || selectedCategory !== 'All' ? (
+              <button
+                onClick={() => { setSearchQuery(''); setSelectedCategory('All'); }}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-white text-xs font-bold border border-slate-700"
+              >
+                Clear Filters
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-black shadow-md shadow-teal-500/20 transition-all"
+              >
+                Post First Video
+              </button>
+            )}
           </div>
         )}
 
@@ -978,20 +996,24 @@ export const EducationView: React.FC<EducationViewProps> = ({
                 {/* Card Information Body */}
                 <div className="p-4 flex flex-col justify-between flex-1 space-y-3 bg-slate-900/60">
                   <div className="space-y-1.5">
-                    {/* Disease / Masterclass Title */}
+                    {/* Video Title */}
                     <h3 className="text-sm font-bold text-white line-clamp-2 leading-snug group-hover:text-teal-300 transition-colors">
                       {vid.title}
                     </h3>
 
-                    {/* Disease Tag */}
+                    {/* Disease / topic tag */}
                     <div className="flex items-center space-x-1.5">
                       <span className="text-[11px] font-semibold text-slate-400">
                         {vid.diseaseName}
                       </span>
-                      <span className="text-slate-600 text-[10px]">•</span>
-                      <span className="text-[10px] font-medium text-emerald-400">
-                        Uganda MOH
-                      </span>
+                      {vid.category && vid.category !== vid.diseaseName && (
+                        <>
+                          <span className="text-slate-600 text-[10px]">•</span>
+                          <span className="text-[10px] font-medium text-teal-400">
+                            {vid.category.split(' ')[0]}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
 
