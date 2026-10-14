@@ -177,8 +177,19 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
       </div>
 
       {/* Clinicians Grid — Large Photo Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        {filteredClinicians.map((clinician) => (
+      {filteredClinicians.length === 0 ? (
+        <div className="p-8 text-center bg-slate-900/60 rounded-3xl border border-slate-800 text-slate-400 space-y-2">
+          <p className="text-sm font-semibold text-white">No healthcare providers found in this category</p>
+          <button
+            onClick={() => setSelectedProfession('all')}
+            className="px-4 py-1.5 rounded-full bg-teal-500 text-slate-950 font-bold text-xs"
+          >
+            Show All Providers
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          {filteredClinicians.map((clinician) => (
           <div
             key={clinician.id}
             className={`relative rounded-3xl overflow-hidden border border-slate-800 shadow-xl bg-gradient-to-b ${professionGradients[clinician.profession] || 'from-slate-800 via-slate-900 to-slate-900'}`}
@@ -306,7 +317,8 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* ============================================================ */}
       {/* DIRECT CHAT MODAL                                           */}

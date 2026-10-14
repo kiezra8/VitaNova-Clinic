@@ -40,6 +40,164 @@ import { FitnessView } from './components/views/FitnessView';
 import { VideoCallModal } from './components/views/VideoCallModal';
 import { fetchClinicians } from './lib/supabase';
 
+// Default verified Ugandan clinicians registry — Dr. Israel Kisakye as Lead Director
+export const DEFAULT_CLINICIANS: HealthcareWorker[] = [
+  {
+    id: 'doc_israel',
+    name: 'Dr. Israel Kisakye',
+    profession: 'Doctor',
+    specialty: 'Chief Medical Consultant & Telehealth Lead',
+    experienceYears: 12,
+    verified: true,
+    available: true,
+    feeUGX: 45000,
+    avatar: '/ki_ezra_avatar.jpg',
+    phone: '+256 772 888 888',
+    whatsapp: '+256 772 888 888',
+    email: 'israelerzrakisakye@gmail.com',
+    inAppCallRoom: 'vitanova-doc-israel-kisakye',
+    bio: 'Chief Medical Officer at VitaNova Clinic. Over 12 years directing clinical telemedicine, chronic disease reversal, and family healthcare programs.',
+    languages: ['English', 'Luganda'],
+    rating: 5.0,
+    reviewCount: 164,
+    registrationNumber: 'UMDPC-MED-2010-3104',
+    education: 'MBChB (Makerere University), MSc Telemedicine (Edinburgh)',
+    hospitalAffiliation: 'VitaNova Central Nakawa Clinic & Mulago Referral',
+    conditionsTreated: [
+      'Hypertension & Cardiovascular Health',
+      'Diabetes Mellitus & Metabolic Therapy',
+      'Telehealth Clinical Triage',
+      'Elderly Care & Bedside Follow-up'
+    ],
+    availabilityHours: 'Daily: 7:00 AM – 10:00 PM (EAT)',
+    responseSpeed: '< 2 mins direct response'
+  },
+  {
+    id: 'doc_mukasa',
+    name: 'Dr. Ronald Mukasa',
+    profession: 'Doctor',
+    specialty: 'Cardiologist & Internal Medicine',
+    experienceYears: 14,
+    verified: true,
+    available: true,
+    feeUGX: 45000,
+    avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
+    phone: '+256 702 110 334',
+    whatsapp: '+256 702 110 334',
+    email: 'mukasa.ronald@vitanova.ug',
+    inAppCallRoom: 'vitanova-doc-mukasa',
+    bio: 'Senior Consultant Physician at VitaNova Nakawa. Over 14 years managing complex adult illnesses with a dedicated focus on hypertension control, heart failure prevention, and personalized lifestyle medicine.',
+    languages: ['English', 'Luganda'],
+    rating: 4.9,
+    reviewCount: 128,
+    registrationNumber: 'UMDPC-MED-2012-4821',
+    education: 'MBChB (Makerere University), MMed Internal Medicine (Mulago)',
+    hospitalAffiliation: 'Mulago National Referral Hospital & VitaNova Nakawa Branch',
+    conditionsTreated: [
+      'High Blood Pressure & Hypertension',
+      'Heart Palpitations & Arrhythmia',
+      'Type 2 Diabetes Mellitus Management',
+      'Chest Tightness & Cardiovascular Risk Review',
+      'Long-term Medication Safety & Dose Titration'
+    ],
+    availabilityHours: 'Mon – Sat: 8:00 AM – 7:30 PM (EAT)',
+    responseSpeed: '< 5 mins average response'
+  },
+  {
+    id: 'nurse_florence',
+    name: 'Sister Florence Nabatanzi',
+    profession: 'Nurse',
+    specialty: 'Community Health & Chronic Wound Care',
+    experienceYears: 11,
+    verified: true,
+    available: true,
+    feeUGX: 25000,
+    avatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+    phone: '+256 774 229 881',
+    whatsapp: '+256 774 229 881',
+    email: 'florence.nabatanzi@vitanova.ug',
+    inAppCallRoom: 'vitanova-nurse-florence',
+    bio: 'Lead Community Outreach Nurse. Passionate about home-based elder care, post-surgical wound healing, and family health education. Certified in gentle sterile wound dressing and diabetic foot prophylaxis.',
+    languages: ['Luganda', 'English'],
+    rating: 5.0,
+    reviewCount: 94,
+    registrationNumber: 'UNMC-RN-2015-9943',
+    education: 'BSc Nursing Science (Aga Khan University, Kampala)',
+    hospitalAffiliation: 'VitaNova Community Outreach & Kawempe General Hospital',
+    conditionsTreated: [
+      'Chronic Diabetic Wound Dressing & Care',
+      'Post-Surgical Suture Care & Inspection',
+      'In-Home Vital Signs Assessment (BP, Glucose, SpO2)',
+      'Intravenous & Intramuscular Medication Administration',
+      'Elderly Bedside Care & Pressure Sore Prevention'
+    ],
+    availabilityHours: 'Daily: 7:00 AM – 9:00 PM (EAT)',
+    responseSpeed: '< 3 mins average response'
+  },
+  {
+    id: 'midwife_agnes',
+    name: 'Midwife Agnes Akello',
+    profession: 'Midwife',
+    specialty: 'Antenatal, Postnatal & Lactation Counseling',
+    experienceYears: 9,
+    verified: true,
+    available: true,
+    feeUGX: 30000,
+    avatar: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=400&q=80',
+    phone: '+256 782 443 192',
+    whatsapp: '+256 782 443 192',
+    email: 'agnes.akello@vitanova.ug',
+    inAppCallRoom: 'vitanova-midwife-agnes',
+    bio: 'Certified Registered Midwife dedicated to reassuring expectant mothers and new parents. Experienced in maternal danger sign screening, lactation guidance, newborn cord care, and maternal mental health support.',
+    languages: ['English', 'Ateso', 'Luganda'],
+    rating: 4.8,
+    reviewCount: 76,
+    registrationNumber: 'UNMC-RM-2017-3310',
+    education: 'Diploma in Midwifery (Nsambya School of Nursing & Midwifery)',
+    hospitalAffiliation: 'St. Francis Hospital Nsambya & VitaNova Maternal Center',
+    conditionsTreated: [
+      'Antenatal Health Assessment & Guidance',
+      'Postpartum Recovery & Bleeding Checks',
+      'Breastfeeding Technique & Mastitis Prevention',
+      'Newborn Jaundice & Cord Care Guidance',
+      'Birth Planning & Family Planning Consultations'
+    ],
+    availabilityHours: 'Mon – Sun: 24/7 On-Call Support',
+    responseSpeed: '< 10 mins average response'
+  },
+  {
+    id: 'physio_kato',
+    name: 'Dr. Brian Kato (PT)',
+    profession: 'Physiotherapist',
+    specialty: 'Orthopaedic & Neurological Rehabilitation',
+    experienceYears: 8,
+    verified: true,
+    available: true,
+    feeUGX: 40000,
+    avatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
+    phone: '+256 701 556 782',
+    whatsapp: '+256 701 556 782',
+    email: 'brian.kato@vitanova.ug',
+    inAppCallRoom: 'vitanova-physio-kato',
+    bio: 'Licensed Physical Therapist specializing in post-stroke functional recovery, chronic spine & lower back pain relief, joint rehabilitation, and home-based mobility regain for seniors.',
+    languages: ['English', 'Luganda'],
+    rating: 4.9,
+    reviewCount: 62,
+    registrationNumber: 'UPTA-PT-2018-0419',
+    education: 'BSc Physiotherapy (Makerere University College of Health Sciences)',
+    hospitalAffiliation: 'CoRSU Rehabilitation Hospital & VitaNova Physio Clinic',
+    conditionsTreated: [
+      'Post-Stroke Movement Re-education',
+      'Chronic Lower Back Pain & Sciatica',
+      'Post-Fracture Joint Stiffness & Rehab',
+      'Knee Osteoarthritis & Walking Aid Training',
+      'Ergonomic Posture & Workplace Pain Management'
+    ],
+    availabilityHours: 'Mon – Sat: 8:30 AM – 6:00 PM (EAT)',
+    responseSpeed: '< 15 mins average response'
+  }
+];
+
 export const App: React.FC = () => {
   const [currentRole, setCurrentRole] = useState<UserRole>('patient');
   const [activeTab, setActiveTab] = useState<NavTab>('home');
@@ -60,8 +218,24 @@ export const App: React.FC = () => {
     message: 'All changes synced'
   });
 
-  // Clinicians List
-  const [clinicians, setClinicians] = useState<HealthcareWorker[]>([]);
+  // Clinicians List — Initialized immediately with DEFAULT_CLINICIANS + any custom clinicians
+  const [clinicians, setClinicians] = useState<HealthcareWorker[]>(() => {
+    try {
+      const saved = localStorage.getItem('vitanova_custom_clinicians');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const ids = new Set(parsed.map((c: any) => c.id));
+          const merged = [...parsed];
+          DEFAULT_CLINICIANS.forEach((d) => {
+            if (!ids.has(d.id)) merged.push(d);
+          });
+          return merged;
+        }
+      }
+    } catch (_) {}
+    return DEFAULT_CLINICIANS;
+  });
 
   // Payment Modal State
   const [paymentModalOpen, setPaymentModalOpen] = useState<boolean>(false);
@@ -102,187 +276,18 @@ export const App: React.FC = () => {
       setSyncInfo(info);
     });
 
-    // Fallback Clinicians with real Ugandan phone numbers and Dr. Israel Kisakye as Director
-    const FALLBACK_CLINICIANS: HealthcareWorker[] = [
-      {
-        id: 'doc_israel',
-        name: 'Dr. Israel Kisakye',
-        profession: 'Doctor',
-        specialty: 'Chief Medical Consultant & Telehealth Lead',
-        experienceYears: 12,
-        verified: true,
-        available: true,
-        feeUGX: 45000,
-        avatar: '/ki_ezra_avatar.jpg',
-        phone: '+256 772 888 888',
-        whatsapp: '+256 772 888 888',
-        email: 'israelerzrakisakye@gmail.com',
-        inAppCallRoom: 'vitanova-doc-israel-kisakye',
-        bio: 'Chief Medical Officer at VitaNova Clinic. Over 12 years directing clinical telemedicine, chronic disease reversal, and family healthcare programs.',
-        languages: ['English', 'Luganda'],
-        rating: 5.0,
-        reviewCount: 164,
-        registrationNumber: 'UMDPC-MED-2010-3104',
-        education: 'MBChB (Makerere University), MSc Telemedicine (Edinburgh)',
-        hospitalAffiliation: 'VitaNova Central Nakawa Clinic & Mulago Referral',
-        conditionsTreated: [
-          'Hypertension & Cardiovascular Health',
-          'Diabetes Mellitus & Metabolic Therapy',
-          'Telehealth Clinical Triage',
-          'Elderly Care & Bedside Follow-up'
-        ],
-        availabilityHours: 'Daily: 7:00 AM – 10:00 PM (EAT)',
-        responseSpeed: '< 2 mins direct response'
-      },
-      {
-        id: 'doc_mukasa',
-        name: 'Dr. Ronald Mukasa',
-        profession: 'Doctor',
-        specialty: 'Cardiologist & Internal Medicine',
-        experienceYears: 14,
-        verified: true,
-        available: true,
-        feeUGX: 45000,
-        avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
-        phone: '+256 702 110 334',
-        whatsapp: '+256 702 110 334',
-        email: 'mukasa.ronald@vitanova.ug',
-        inAppCallRoom: 'vitanova-doc-mukasa',
-        bio: 'Senior Consultant Physician at VitaNova Nakawa. Over 14 years managing complex adult illnesses with a dedicated focus on hypertension control, heart failure prevention, and personalized lifestyle medicine.',
-        languages: ['English', 'Luganda'],
-        rating: 4.9,
-        reviewCount: 128,
-        registrationNumber: 'UMDPC-MED-2012-4821',
-        education: 'MBChB (Makerere University), MMed Internal Medicine (Mulago)',
-        hospitalAffiliation: 'Mulago National Referral Hospital & VitaNova Nakawa Branch',
-        conditionsTreated: [
-          'High Blood Pressure & Hypertension',
-          'Heart Palpitations & Arrhythmia',
-          'Type 2 Diabetes Mellitus Management',
-          'Chest Tightness & Cardiovascular Risk Review',
-          'Long-term Medication Safety & Dose Titration'
-        ],
-        availabilityHours: 'Mon – Sat: 8:00 AM – 7:30 PM (EAT)',
-        responseSpeed: '< 5 mins average response'
-      },
-      {
-        id: 'nurse_florence',
-        name: 'Sister Florence Nabatanzi',
-        profession: 'Nurse',
-        specialty: 'Community Health & Chronic Wound Care',
-        experienceYears: 11,
-        verified: true,
-        available: true,
-        feeUGX: 25000,
-        avatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
-        phone: '+256 774 229 881',
-        whatsapp: '+256 774 229 881',
-        email: 'florence.nabatanzi@vitanova.ug',
-        inAppCallRoom: 'vitanova-nurse-florence',
-        bio: 'Lead Community Outreach Nurse. Passionate about home-based elder care, post-surgical wound healing, and family health education. Certified in gentle sterile wound dressing and diabetic foot prophylaxis.',
-        languages: ['Luganda', 'English'],
-        rating: 5.0,
-        reviewCount: 94,
-        registrationNumber: 'UNMC-RN-2015-9943',
-        education: 'BSc Nursing Science (Aga Khan University, Kampala)',
-        hospitalAffiliation: 'VitaNova Community Outreach & Kawempe General Hospital',
-        conditionsTreated: [
-          'Chronic Diabetic Wound Dressing & Care',
-          'Post-Surgical Suture Care & Inspection',
-          'In-Home Vital Signs Assessment (BP, Glucose, SpO2)',
-          'Intravenous & Intramuscular Medication Administration',
-          'Elderly Bedside Care & Pressure Sore Prevention'
-        ],
-        availabilityHours: 'Daily: 7:00 AM – 9:00 PM (EAT)',
-        responseSpeed: '< 3 mins average response'
-      },
-      {
-        id: 'midwife_agnes',
-        name: 'Midwife Agnes Akello',
-        profession: 'Midwife',
-        specialty: 'Antenatal, Postnatal & Lactation Counseling',
-        experienceYears: 9,
-        verified: true,
-        available: true,
-        feeUGX: 30000,
-        avatar: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=400&q=80',
-        phone: '+256 782 443 192',
-        whatsapp: '+256 782 443 192',
-        email: 'agnes.akello@vitanova.ug',
-        inAppCallRoom: 'vitanova-midwife-agnes',
-        bio: 'Certified Registered Midwife dedicated to reassuring expectant mothers and new parents. Experienced in maternal danger sign screening, lactation guidance, newborn cord care, and maternal mental health support.',
-        languages: ['English', 'Ateso', 'Luganda'],
-        rating: 4.8,
-        reviewCount: 76,
-        registrationNumber: 'UNMC-RM-2017-3310',
-        education: 'Diploma in Midwifery (Nsambya School of Nursing & Midwifery)',
-        hospitalAffiliation: 'St. Francis Hospital Nsambya & VitaNova Maternal Center',
-        conditionsTreated: [
-          'Antenatal Health Assessment & Guidance',
-          'Postpartum Recovery & Bleeding Checks',
-          'Breastfeeding Technique & Mastitis Prevention',
-          'Newborn Jaundice & Cord Care Guidance',
-          'Birth Planning & Family Planning Consultations'
-        ],
-        availabilityHours: 'Mon – Sun: 24/7 On-Call Support',
-        responseSpeed: '< 10 mins average response'
-      },
-      {
-        id: 'physio_kato',
-        name: 'Dr. Brian Kato (PT)',
-        profession: 'Physiotherapist',
-        specialty: 'Orthopaedic & Neurological Rehabilitation',
-        experienceYears: 8,
-        verified: true,
-        available: true,
-        feeUGX: 40000,
-        avatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
-        phone: '+256 701 556 782',
-        whatsapp: '+256 701 556 782',
-        email: 'brian.kato@vitanova.ug',
-        inAppCallRoom: 'vitanova-physio-kato',
-        bio: 'Licensed Physical Therapist specializing in post-stroke functional recovery, chronic spine & lower back pain relief, joint rehabilitation, and home-based mobility regain for seniors.',
-        languages: ['English', 'Luganda'],
-        rating: 4.9,
-        reviewCount: 62,
-        registrationNumber: 'UPTA-PT-2018-0419',
-        education: 'BSc Physiotherapy (Makerere University College of Health Sciences)',
-        hospitalAffiliation: 'CoRSU Rehabilitation Hospital & VitaNova Physio Clinic',
-        conditionsTreated: [
-          'Post-Stroke Movement Re-education',
-          'Chronic Lower Back Pain & Sciatica',
-          'Post-Fracture Joint Stiffness & Rehab',
-          'Knee Osteoarthritis & Walking Aid Training',
-          'Ergonomic Posture & Workplace Pain Management'
-        ],
-        availabilityHours: 'Mon – Sat: 8:30 AM – 6:00 PM (EAT)',
-        responseSpeed: '< 15 mins average response'
-      }
-    ];
-
-    // Check custom clinicians in localStorage
-    const savedCustom = localStorage.getItem('vitanova_custom_clinicians');
-    if (savedCustom) {
-      try {
-        const parsed = JSON.parse(savedCustom);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setClinicians(parsed);
-          return;
-        }
-      } catch (_) {}
-    }
-
+    // Optional Supabase cloud sync
     fetchClinicians()
       .then(data => {
         if (data && data.length > 0) {
-          setClinicians(data as any);
-        } else {
-          setClinicians(FALLBACK_CLINICIANS);
+          setClinicians(prev => {
+            const ids = new Set((data as any[]).map(d => d.id));
+            const extra = prev.filter(p => !ids.has(p.id));
+            return [...(data as any[]), ...extra];
+          });
         }
       })
-      .catch(() => {
-        setClinicians(FALLBACK_CLINICIANS);
-      });
+      .catch(() => {});
 
     return () => {
       unsubNet();
@@ -800,7 +805,8 @@ export const App: React.FC = () => {
         <VideoCallModal
           clinician={activeCallClinician}
           callType={callType}
-          memberName={patient?.fullName || 'Guest Patient'}
+          userRole={isDoctorLoggedIn ? 'doctor' : 'patient'}
+          memberName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Sarah Namubiru')}
           onEnd={() => {
             setActiveCallClinician(null);
             setCallType(null);

@@ -29,7 +29,8 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { HealthEducationArticle } from '../../types';
-import { DISEASE_VIDEOS, DiseaseVideoItem } from '../../data/diseaseVideos';
+import { DiseaseVideoItem } from '../../data/diseaseVideos';
+import { db } from '../../lib/db';
 
 interface EducationViewProps {
   articles?: HealthEducationArticle[];
@@ -61,7 +62,7 @@ function getTheme(category: string) {
   return CATEGORY_THEMES[category] || { primary: '#2dd4bf', accent: '#0d9488', glow: 'rgba(45,212,191,0.5)', hue: 174 };
 }
 
-// ── FULLSCREEN IMMERSIVE AI VIDEO PLAYER (ONLY THING ON SCREEN) ───────────
+// ── CLEAN NATIVE FULLSCREEN VIDEO PLAYER (NO AI SYNTHESIS, NO OVERLAYS) ────
 interface FullscreenVideoPlayerProps {
   video: DiseaseVideoItem;
   allVideos: DiseaseVideoItem[];
@@ -77,130 +78,45 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<number>(0);
-  const [duration, setDuration] = useState<number>(76);
+  const [duration, setDuration] = useState<number>(0);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showControls, setShowControls] = useState<boolean>(true);
-  const [showOverlaySlides, setShowOverlaySlides] = useState<boolean>(true);
-  const [currentSlideIdx, setCurrentSlideIdx] = useState<number>(0);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [resolvedSrc, setResolvedSrc] = useState<string>(video.videoUrl || '');
 
   const theme = useMemo(() => getTheme(video.category), [video.category]);
-  const guideline = useMemo(() => {
-    return video.clinicalGuideline || {
-      caseDefinition: video.summary || 'Clinical overview and educational health guidelines.',
-      diagnosticCriteria: ['Targeted clinical evaluation and symptom history', 'Physical examination and vital assessment'],
-      investigations: ['Baseline diagnostic tests and lab workup', 'Routine clinical review'],
-      firstLineMedicines: ['Standard Uganda Ministry of Health approved regimen'],
-      treatmentProtocol: ['Follow prescribed medications, optimal hydration, and regular follow-up'],
-      dangerSigns: ['Sudden severe chest pain, extreme breathlessness, or loss of consciousness'],
-      referralProtocol: 'Immediate transfer to nearest VitaNova emergency center or referral hospital',
-      preventionCounseling: ['Maintain balanced nutrition, routine screening, and lifestyle vigilance']
+
+  // Load persistent video blob from IndexedDB if available
+  useEffect(() => {
+    let active = true;
+    window.speechSynthesis?.cancel();
+
+    const loadBlob = async () => {
+      try {
+        const stored = await db.appSettings.get(`video_blob_${video.id}`);
+        if (stored?.value && active) {
+          const blobUrl = URL.createObjectURL(stored.value);
+          setResolvedSrc(blobUrl);
+          return;
+        }
+      } catch (_) {}
+      if (video.videoUrl && active) {
+        setResolvedSrc(video.videoUrl);
+      }
     };
-  }, [video]);
 
-  // Build authentic 4-stage clinical masterclass slides from Uganda Clinical Guidelines 2023
-  const clinicalStages = useMemo(() => [
-    {
-      title: `Pathophysiology & Mechanism`,
-      badge: 'Stage 1 • Cellular Etiology',
-      icon: Activity,
-      headline: guideline.caseDefinition,
-      bullets: [
-        guideline.diagnosticCriteria[0] || 'Characteristic cellular pathophysiology and clinical signs',
-        `Primary organ systems involved: ${video.category}`,
-        `Uganda Clinical Guidelines Standard: Health Centre III to National Referral`
-      ],
-      script: `Welcome to VitaNova HealthTube. In this masterclass on ${video.diseaseName}, we review the Uganda Clinical Guidelines 2023. ${guideline.caseDefinition} Early identification is essential to prevent systemic complications.`
-    },
-    {
-      title: `Diagnostic Criteria & Lab Testing`,
-      badge: 'Stage 2 • Confirmatory Workup',
-      icon: Stethoscope,
-      headline: `Confirmatory tests: ${guideline.investigations[0] || 'Targeted diagnostic panels'}`,
-      bullets: [
-        `Primary test: ${guideline.investigations[0] || 'Microbiological or rapid screening'}`,
-        `Secondary evaluation: ${guideline.investigations[1] || 'Biomarker and organ function assessment'}`,
-        `Hallmark signs: ${guideline.diagnosticCriteria[1] || guideline.diagnosticCriteria[0]}`
-      ],
-      script: `For diagnostic confirmation, Uganda Clinical Guidelines require ${guideline.investigations[0] || 'diagnostic testing'}. Secondary workup includes ${guideline.investigations[1] || 'organ function monitoring'}.`
-    },
-    {
-      title: `Uganda First-Line Medicines & Regimen`,
-      badge: 'Stage 3 • First-Line Rx',
-      icon: Pill,
-      headline: `Prescribed First-Line: ${guideline.firstLineMedicines[0]}`,
-      bullets: [
-        `Primary regimen: ${guideline.firstLineMedicines[0]}`,
-        guideline.firstLineMedicines[1] || guideline.treatmentProtocol[0],
-        `Protocol: ${guideline.treatmentProtocol[0]}`
-      ],
-      script: `According to the Uganda Clinical Guidelines, the first-line pharmacotherapy for ${video.diseaseName} is ${guideline.firstLineMedicines[0]}. Supportive management requires ${guideline.treatmentProtocol[0]}. Complete the full treatment course.`
-    },
-    {
-      title: `Red Flag Danger Signs & Referral`,
-      badge: 'Stage 4 • Critical Red Flags',
-      icon: AlertTriangle,
-      headline: `Emergency Danger Sign: ${guideline.dangerSigns[0]}`,
-      bullets: [
-        `Danger Sign: ${guideline.dangerSigns[0]}`,
-        `Secondary Red Flag: ${guideline.dangerSigns[1] || 'Rapid clinical or vital deterioration'}`,
-        `Action: ${guideline.referralProtocol}`,
-        `Prevention: ${guideline.preventionCounseling[0]}`
-      ],
-      script: `Be vigilant for danger signs: ${guideline.dangerSigns[0]}. Immediate action required: ${guideline.referralProtocol}. For prevention, adhere to ${guideline.preventionCounseling[0]}.`
-    }
-  ], [video, guideline]);
+    loadBlob();
 
-  const activeStage = clinicalStages[currentSlideIdx] || clinicalStages[0];
+    return () => {
+      active = false;
+      window.speechSynthesis?.cancel();
+    };
+  }, [video.id, video.videoUrl]);
 
-  // Speech narration
-  const narrateStage = useCallback((idx: number) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-
-    const stage = clinicalStages[idx];
-    if (!stage) return;
-
-    const utterance = new SpeechSynthesisUtterance(stage.script);
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
-    utterance.volume = isMuted ? 0 : 1.0;
-
-    const voices = window.speechSynthesis.getVoices();
-    const naturalVoice =
-      voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('James'))) ||
-      voices.find(v => v.lang.startsWith('en')) ||
-      voices[0];
-    if (naturalVoice) utterance.voice = naturalVoice;
-
-    speechRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  }, [clinicalStages, isMuted]);
-
-  // Load voices
-  useEffect(() => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.onvoiceschanged = () => {};
-    }
-  }, []);
-
-  // When disease changes
-  useEffect(() => {
-    setCurrentSlideIdx(0);
-    setCurrentTime(0);
-    if (videoRef.current) {
-      videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(() => {});
-    }
-    narrateStage(0);
-  }, [video.id]);
-
-  // Auto-hide controls after 3.5s of inactivity
+  // Reset hide timer
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
     if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
@@ -218,50 +134,21 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
     };
   }, [resetHideTimer]);
 
-  // Keyboard controls
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      resetHideTimer();
-      if (e.code === 'Space') {
-        e.preventDefault();
-        togglePlay();
-      } else if (e.code === 'Escape') {
-        onClose();
-      } else if (e.code === 'ArrowLeft') {
-        seekTo(currentTime - 5);
-      } else if (e.code === 'ArrowRight') {
-        seekTo(currentTime + 5);
-      } else if (e.key === 'm' || e.key === 'M') {
-        setIsMuted(m => !m);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTime, isPlaying, resetHideTimer]);
-
-  // Prevent background scroll
+  // Prevent background scroll and cancel any external speech synthesis
   useEffect(() => {
     document.body.style.overflow = 'hidden';
+    window.speechSynthesis?.cancel();
     return () => {
       document.body.style.overflow = '';
       window.speechSynthesis?.cancel();
     };
   }, []);
 
-  // Video time tracking
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
-    const t = videoRef.current.currentTime;
-    const d = videoRef.current.duration || 76;
-    setCurrentTime(t);
-    setDuration(d);
-
-    // Sync active clinical stage with playback timeline
-    const stageDuration = d / clinicalStages.length;
-    const newIdx = Math.min(clinicalStages.length - 1, Math.floor(t / stageDuration));
-    if (newIdx !== currentSlideIdx) {
-      setCurrentSlideIdx(newIdx);
-      narrateStage(newIdx);
+    setCurrentTime(videoRef.current.currentTime);
+    if (videoRef.current.duration) {
+      setDuration(videoRef.current.duration);
     }
   };
 
@@ -269,12 +156,9 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
-      window.speechSynthesis?.pause();
       setIsPlaying(false);
     } else {
       videoRef.current.play().catch(() => {});
-      window.speechSynthesis?.resume();
-      narrateStage(currentSlideIdx);
       setIsPlaying(true);
     }
     resetHideTimer();
@@ -282,32 +166,35 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
 
   const seekTo = (t: number) => {
     if (!videoRef.current) return;
-    const clamped = Math.max(0, Math.min(duration, t));
+    const clamped = Math.max(0, Math.min(duration || 100, t));
     videoRef.current.currentTime = clamped;
     setCurrentTime(clamped);
-    const stageDuration = duration / clinicalStages.length;
-    const newIdx = Math.min(clinicalStages.length - 1, Math.floor(clamped / stageDuration));
-    if (newIdx !== currentSlideIdx) {
-      setCurrentSlideIdx(newIdx);
-      narrateStage(newIdx);
-    }
     resetHideTimer();
   };
 
   const handleScrubberClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    seekTo(pct * duration);
+    seekTo(pct * (duration || 100));
   };
 
   const formatSec = (s: number) => {
+    if (!s || isNaN(s)) return '0:00';
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${sec < 10 ? '0' : ''}${sec}`;
   };
 
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const ActiveIcon = activeStage.icon;
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  };
 
   return (
     <div
@@ -316,10 +203,10 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
       onTouchStart={resetHideTimer}
       className="fixed inset-0 z-[9999] bg-black flex items-center justify-center select-none overflow-hidden"
     >
-      {/* ── REAL VIDEO PLAYER (PLAYS USER GALLERY VIDEO OR GENESIS OF OUR JOURNEY) ── */}
+      {/* ── REAL VIDEO PLAYER (PLAYS USER GALLERY VIDEO WITH NATIVE AUDIO) ── */}
       <video
         ref={videoRef}
-        src={video.videoUrl || "/genesis_video.mp4"}
+        src={resolvedSrc || video.videoUrl || '/genesis_video.mp4'}
         playsInline
         autoPlay
         muted={isMuted}
@@ -331,105 +218,45 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
         className="w-full h-full object-contain cursor-pointer"
       />
 
-      {/* ── TOP MINIMALIST BAR (ONLY ON HOVER/TOUCH) ── */}
+      {/* ── TOP BAR (FADES OUT AUTOMATICALLY) ── */}
       <div
         className={`absolute top-0 inset-x-0 z-30 p-4 sm:p-6 bg-gradient-to-b from-black/90 via-black/50 to-transparent transition-opacity duration-300 ${
           showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-w-7xl mx-auto">
           {/* Close Button */}
           <button
             onClick={onClose}
             className="flex items-center space-x-2 px-3.5 py-2 rounded-full bg-black/70 hover:bg-black/90 border border-white/20 text-white text-xs font-bold backdrop-blur-md transition-all active:scale-95 shadow-xl"
           >
-            <X className="w-4 h-4 text-red-400" />
-            <span>Close Video</span>
+            <X className="w-4 h-4 text-rose-400" />
+            <span>Close</span>
           </button>
 
           {/* Disease Name & Category Badge */}
-          <div className="text-center px-2">
+          <div className="text-center px-4 min-w-0">
             <span
-              className="text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full"
-              style={{ background: `${theme.primary}30`, color: theme.primary, border: `1px solid ${theme.primary}60` }}
+              className="text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full inline-block mb-1"
+              style={{ background: `${theme.primary}25`, color: theme.primary, border: `1px solid ${theme.primary}60` }}
             >
-              {video.category} • Uganda Clinical Guidelines
+              {video.category}
             </span>
-            <h1 className="text-base sm:text-lg font-black text-white drop-shadow-md truncate max-w-xs sm:max-w-md">
-              {video.diseaseName}
+            <h1 className="text-sm sm:text-base font-black text-white drop-shadow-md truncate max-w-xs sm:max-w-md">
+              {video.title || video.diseaseName}
             </h1>
           </div>
 
-          {/* Toggle Clinical Slides Overlay Button */}
+          {/* Fullscreen Button */}
           <button
-            onClick={() => setShowOverlaySlides(s => !s)}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold border backdrop-blur-md transition-all ${
-              showOverlaySlides
-                ? 'bg-red-600 border-red-500 text-white shadow-lg shadow-red-600/30'
-                : 'bg-black/60 border-white/20 text-slate-300'
-            }`}
+            onClick={toggleFullscreen}
+            className="p-2.5 rounded-full bg-black/70 hover:bg-black/90 border border-white/20 text-white backdrop-blur-md transition-all active:scale-95"
+            title="Toggle Fullscreen"
           >
-            {showOverlaySlides ? 'Slides ON' : 'Slides OFF'}
+            <Maximize className="w-4 h-4" />
           </button>
         </div>
       </div>
-
-      {/* ── BROADCAST VISUAL EXPLANATION OVERLAY (ON-SCREEN HUD) ── */}
-      {showOverlaySlides && (
-        <div className="absolute top-20 sm:top-24 left-4 right-4 sm:left-6 sm:right-auto sm:max-w-md z-20 pointer-events-none transition-all">
-          <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-black/80 backdrop-blur-xl border border-white/20 shadow-2xl space-y-2.5 pointer-events-auto">
-            {/* Header Stage Badge */}
-            <div className="flex items-center justify-between">
-              <span
-                className="flex items-center space-x-1.5 text-[11px] font-extrabold uppercase tracking-wider"
-                style={{ color: theme.primary }}
-              >
-                <ActiveIcon className="w-4 h-4" />
-                <span>{activeStage.badge}</span>
-              </span>
-              <span className="text-[10px] font-mono text-slate-400">
-                Stage {currentSlideIdx + 1} of {clinicalStages.length}
-              </span>
-            </div>
-
-            {/* Stage Title */}
-            <h2 className="text-sm sm:text-base font-black text-white leading-snug">
-              {activeStage.title}
-            </h2>
-
-            {/* Headline Card */}
-            <div
-              className="p-2.5 rounded-xl border text-xs font-bold leading-snug"
-              style={{
-                background: currentSlideIdx === 3 ? 'rgba(127, 29, 29, 0.4)' : `${theme.primary}18`,
-                borderColor: currentSlideIdx === 3 ? 'rgba(239, 68, 68, 0.4)' : `${theme.primary}40`,
-                color: currentSlideIdx === 3 ? '#fca5a5' : '#ffffff'
-              }}
-            >
-              {activeStage.headline}
-            </div>
-
-            {/* Authentic Uganda Clinical Guidelines Bullet Points */}
-            <div className="space-y-1.5 pt-0.5">
-              {activeStage.bullets.map((b, i) => (
-                <div key={i} className="flex items-start space-x-2 text-xs text-slate-200">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0"
-                    style={{ background: currentSlideIdx === 3 ? '#ef4444' : theme.primary }}
-                  />
-                  <span className="leading-tight">{b}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Presenter Footer Tag */}
-            <div className="flex items-center justify-between pt-1 border-t border-white/10 text-[10px] text-slate-400">
-              <span>Presenter: <strong>K.I Ezra</strong> (Genesis of our journey)</span>
-              <span className="font-bold text-emerald-400">Uganda MOH Certified</span>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── BIG CENTER PLAY BUTTON WHEN PAUSED ── */}
       {!isPlaying && (
@@ -444,125 +271,100 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
 
       {/* ── BOTTOM ON-SCREEN VIDEO CONTROLS ── */}
       <div
-        className={`absolute bottom-0 inset-x-0 z-30 pt-10 pb-4 sm:pb-6 px-4 sm:px-6 bg-gradient-to-t from-black/95 via-black/70 to-transparent space-y-2.5 transition-opacity duration-300 ${
+        className={`absolute bottom-0 inset-x-0 z-30 pt-10 pb-4 sm:pb-6 px-4 sm:px-6 bg-gradient-to-t from-black/95 via-black/70 to-transparent space-y-3 transition-opacity duration-300 ${
           showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
-        {/* Scrubber Bar */}
-        <div
-          onClick={handleScrubberClick}
-          className="relative h-2 rounded-full bg-white/25 hover:h-2.5 cursor-pointer transition-all group"
-        >
-          {/* Stage dividers */}
-          {clinicalStages.map((_, i) => (
-            <span
-              key={i}
-              className="absolute inset-y-0 w-0.5 bg-black/60 z-10"
-              style={{ left: `${(i / clinicalStages.length) * 100}%` }}
-            />
-          ))}
-
-          {/* Progress fill */}
+        <div className="max-w-7xl mx-auto space-y-2.5">
+          {/* Scrubber Bar */}
           <div
-            className="h-full rounded-full relative"
-            style={{ width: `${pct}%`, background: theme.primary }}
+            onClick={handleScrubberClick}
+            className="relative h-2 rounded-full bg-white/25 hover:h-2.5 cursor-pointer transition-all group"
           >
-            <span
-              className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-lg scale-0 group-hover:scale-100 transition-transform"
-            />
-          </div>
-        </div>
-
-        {/* Controls Row */}
-        <div className="flex items-center justify-between text-white text-xs">
-          {/* Left: Playback buttons */}
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={togglePlay}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-black font-bold shadow-lg transition-transform active:scale-95"
-              style={{ background: theme.primary }}
+            {/* Progress fill */}
+            <div
+              className="h-full rounded-full relative transition-[width] duration-75"
+              style={{ width: `${pct}%`, background: theme.primary }}
             >
-              {isPlaying ? <Pause className="w-5 h-5 fill-black" /> : <Play className="w-5 h-5 fill-black ml-0.5" />}
-            </button>
-
-            {/* Rewind 5s */}
-            <button
-              onClick={() => seekTo(currentTime - 5)}
-              className="p-2 rounded-full hover:bg-white/15 text-slate-300 hover:text-white"
-              title="Rewind 5s"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-
-            {/* Forward 5s */}
-            <button
-              onClick={() => seekTo(currentTime + 5)}
-              className="p-2 rounded-full hover:bg-white/15 text-slate-300 hover:text-white"
-              title="Forward 5s"
-            >
-              <RotateCw className="w-4 h-4" />
-            </button>
-
-            {/* Volume */}
-            <button
-              onClick={() => setIsMuted(m => !m)}
-              className="p-2 rounded-full hover:bg-white/15 text-slate-300 hover:text-white"
-            >
-              {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
-            </button>
-
-            {/* Time */}
-            <span className="font-mono text-[11px] text-slate-300">
-              {formatSec(currentTime)} / {formatSec(duration)}
-            </span>
+              <span
+                className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-lg scale-0 group-hover:scale-100 transition-transform"
+              />
+            </div>
           </div>
 
-          {/* Center: Stage jumps */}
-          <div className="hidden sm:flex items-center space-x-1.5">
-            {clinicalStages.map((stg, i) => (
+          {/* Controls Row */}
+          <div className="flex items-center justify-between text-white text-xs">
+            {/* Left: Playback buttons */}
+            <div className="flex items-center space-x-3">
               <button
-                key={i}
-                onClick={() => {
-                  const targetTime = i * (duration / clinicalStages.length);
-                  seekTo(targetTime);
-                }}
-                className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition-all ${
-                  i === currentSlideIdx
-                    ? 'text-black shadow-md'
-                    : 'bg-white/10 hover:bg-white/20 text-white'
-                }`}
-                style={i === currentSlideIdx ? { background: theme.primary } : {}}
+                onClick={togglePlay}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-black font-bold shadow-lg transition-transform active:scale-95"
+                style={{ background: theme.primary }}
               >
-                {stg.badge.split('•')[0]}
+                {isPlaying ? <Pause className="w-5 h-5 fill-black" /> : <Play className="w-5 h-5 fill-black ml-0.5" />}
               </button>
-            ))}
-          </div>
 
-          {/* Right: Prev/Next Disease */}
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => {
-                const curIdx = allVideos.findIndex(v => v.id === video.id);
-                const prev = allVideos[(curIdx - 1 + allVideos.length) % allVideos.length];
-                onSelectVideo(prev);
-              }}
-              className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Prev Disease</span>
-            </button>
+              {/* Rewind 5s */}
+              <button
+                onClick={() => seekTo(currentTime - 5)}
+                className="p-2 rounded-full hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
+                title="Rewind 5s"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
 
-            <button
-              onClick={() => {
-                const curIdx = allVideos.findIndex(v => v.id === video.id);
-                const next = allVideos[(curIdx + 1) % allVideos.length];
-                onSelectVideo(next);
-              }}
-              className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold"
-            >
-              <span className="hidden sm:inline">Next Disease</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+              {/* Forward 5s */}
+              <button
+                onClick={() => seekTo(currentTime + 5)}
+                className="p-2 rounded-full hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
+                title="Forward 5s"
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
+
+              {/* Volume */}
+              <button
+                onClick={() => setIsMuted(m => !m)}
+                className="p-2 rounded-full hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
+                title={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+
+              {/* Time */}
+              <span className="font-mono text-[11px] text-slate-300">
+                {formatSec(currentTime)} / {formatSec(duration)}
+              </span>
+            </div>
+
+            {/* Right: Prev/Next Video if multiple videos */}
+            {allVideos.length > 1 && (
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => {
+                    const curIdx = allVideos.findIndex(v => v.id === video.id);
+                    const prev = allVideos[(curIdx - 1 + allVideos.length) % allVideos.length];
+                    onSelectVideo(prev);
+                  }}
+                  className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Prev Video</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const curIdx = allVideos.findIndex(v => v.id === video.id);
+                    const next = allVideos[(curIdx + 1) % allVideos.length];
+                    onSelectVideo(next);
+                  }}
+                  className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors"
+                >
+                  <span className="hidden sm:inline">Next Video</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -589,6 +391,61 @@ export const EducationView: React.FC<EducationViewProps> = ({
       return [];
     }
   });
+
+  // Hydrate video & thumbnail blobs from IndexedDB so they never break on page reload
+  useEffect(() => {
+    let isMounted = true;
+    window.speechSynthesis?.cancel();
+
+    const hydrateBlobs = async () => {
+      try {
+        const storedList: DiseaseVideoItem[] = JSON.parse(
+          localStorage.getItem('vitanova_gallery_videos') || '[]'
+        );
+        if (storedList.length === 0) return;
+
+        const updated = await Promise.all(
+          storedList.map(async (item) => {
+            let nextVideoUrl = item.videoUrl;
+            let nextThumb = item.videoThumbnail;
+
+            try {
+              const vBlob = await db.appSettings.get(`video_blob_${item.id}`);
+              if (vBlob?.value) {
+                nextVideoUrl = URL.createObjectURL(vBlob.value);
+              }
+            } catch (_) {}
+
+            try {
+              const tBlob = await db.appSettings.get(`thumb_blob_${item.id}`);
+              if (tBlob?.value) {
+                nextThumb = URL.createObjectURL(tBlob.value);
+              }
+            } catch (_) {}
+
+            return {
+              ...item,
+              videoUrl: nextVideoUrl,
+              videoThumbnail: nextThumb
+            };
+          })
+        );
+
+        if (isMounted) {
+          setGalleryVideos(updated);
+        }
+      } catch (e) {
+        console.warn('Could not hydrate video blobs from DB:', e);
+      }
+    };
+
+    hydrateBlobs();
+
+    return () => {
+      isMounted = false;
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
 
   // Modal State for Posting Videos from Gallery
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
@@ -744,11 +601,27 @@ export const EducationView: React.FC<EducationViewProps> = ({
       const updated = [newVideoItem, ...galleryVideos];
       setGalleryVideos(updated);
 
-      // Persist to localStorage (save lightweight metadata)
+      // Persist metadata to localStorage
       try {
         localStorage.setItem('vitanova_gallery_videos', JSON.stringify(updated));
       } catch (err) {
         console.warn('Could not persist full video object to localStorage:', err);
+      }
+
+      // Persist raw video and thumbnail files into IndexedDB
+      if (videoFile) {
+        try {
+          await db.appSettings.put({ key: `video_blob_${newVideoItem.id}`, value: videoFile });
+        } catch (e) {
+          console.warn('Could not store video in IndexedDB:', e);
+        }
+      }
+      if (thumbnailFile) {
+        try {
+          await db.appSettings.put({ key: `thumb_blob_${newVideoItem.id}`, value: thumbnailFile });
+        } catch (e) {
+          console.warn('Could not store thumbnail in IndexedDB:', e);
+        }
       }
 
       setUploadSuccess(true);
@@ -770,13 +643,15 @@ export const EducationView: React.FC<EducationViewProps> = ({
   };
 
   // Delete User-Uploaded Video
-  const handleDeleteGalleryVideo = (id: string, e: React.MouseEvent) => {
+  const handleDeleteGalleryVideo = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Are you sure you want to remove this video from your gallery?')) {
       const updated = galleryVideos.filter(v => v.id !== id);
       setGalleryVideos(updated);
       try {
         localStorage.setItem('vitanova_gallery_videos', JSON.stringify(updated));
+        await db.appSettings.delete(`video_blob_${id}`);
+        await db.appSettings.delete(`thumb_blob_${id}`);
       } catch (_) {}
     }
   };
