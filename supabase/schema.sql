@@ -182,3 +182,28 @@ CREATE POLICY "Members insert own family" ON family_members FOR INSERT WITH CHEC
 -- Allow sync log writes from any authenticated device
 ALTER TABLE sync_outbox_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow sync writes" ON sync_outbox_log FOR INSERT WITH CHECK (true);
+
+-- ── CALL SIGNALS (WebRTC + Incoming Call notifications across devices) ─────────
+-- Used by Supabase Realtime to ring a doctor's device when a patient calls.
+-- Also relays WebRTC SDP offers/answers and ICE candidates cross-device.
+CREATE TABLE IF NOT EXISTS call_signals (
+  id              TEXT PRIMARY KEY DEFAULT uuid_generate_v4(),
+  signal_type     TEXT NOT NULL,         -- 'INCOMING_CALL' | 'OFFER' | 'ANSWER' | 'ICE' | 'DECLINE' | 'HANGUP'
+  from_role       TEXT NOT NULL,         -- 'patient' | 'doctor'
+  caller_name     TEXT NOT NULL,
+  target_clinician_id TEXT NOT NULL,     -- Which doctor this is meant for
+  call_type       TEXT DEFAULT 'video',  -- 'video' | 'audio'
+  payload         JSONB DEFAULT '{}',    -- WebRTC SDP/ICE payload
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Auto-expire old call signals after 5 minutes to keep table clean
+CREATE INDEX IF NOT EXISTS idx_call_signals_target ON call_signals(target_clinician_id, created_at DESC);
+
+ALTER TABLE call_signals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can insert call signals" ON call_signals FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can read call signals" ON call_signals FOR SELECT USING (true);
+CREATE POLICY "Anyone can delete call signals" ON call_signals FOR DELETE USING (true);
+
+-- Enable Realtime replication on call_signals
+ALTER PUBLICATION supabase_realtime ADD TABLE call_signals;

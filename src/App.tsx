@@ -38,7 +38,17 @@ import { AdminDashboardView } from './components/views/AdminDashboardView';
 import { PaymentModal } from './components/views/PaymentModal';
 import { FitnessView } from './components/views/FitnessView';
 import { VideoCallModal } from './components/views/VideoCallModal';
-import { fetchClinicians } from './lib/supabase';
+import {
+  fetchClinicians,
+  sendCallSignal,
+  subscribeToCallSignals,
+  signInDoctor,
+  signOutDoctor,
+  onAuthChange,
+  fetchClinicianByEmail,
+  upsertClinician
+} from './lib/supabase';
+import { Phone, PhoneOff, Video } from 'lucide-react';
 
 // Default verified Ugandan clinicians registry — Dr. Israel Kisakye as Lead Director
 export const DEFAULT_CLINICIANS: HealthcareWorker[] = [
@@ -252,46 +262,72 @@ export const App: React.FC = () => {
   // Modal for quick vitals logging
   const [showQuickVitals, setShowQuickVitals] = useState<boolean>(false);
 
-  // Doctor Authentication State (Super Admin or Admin-Created Doctor Accounts)
+  // Doctor Authentication State (Supabase Auth-backed)
   const [isDoctorLoggedIn, setIsDoctorLoggedIn] = useState<boolean>(() => {
     return localStorage.getItem('vitanova_doctor_logged_in') === 'true';
   });
   const [loggedInDoctor, setLoggedInDoctor] = useState<HealthcareWorker | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
 
   // Active Direct In-App Call State (Video & Audio Calls)
   const [activeCallClinician, setActiveCallClinician] = useState<HealthcareWorker | null>(null);
   const [callType, setCallType] = useState<'video' | 'audio' | null>(null);
 
-  // Initialize DB and Network subscriptions
+  // Initialize DB, Network subscriptions, and restore Supabase Auth session
   useEffect(() => {
-    // Seed initial local data if empty
     seedInitialDataIfEmpty();
 
-    // Subscribe to network & sync engine
-    const unsubNet = networkSentinel.subscribe((state) => {
-      setNetworkState(state);
-    });
+    const unsubNet = networkSentinel.subscribe((state) => { setNetworkState(state); });
+    const unsubSync = syncEngine.subscribe((info) => { setSyncInfo(info); });
 
-    const unsubSync = syncEngine.subscribe((info) => {
-      setSyncInfo(info);
-    });
-
-    // Optional Supabase cloud sync
+    // Pull clinicians from Supabase
     fetchClinicians()
-      .then(data => {
+      .then((data) => {
         if (data && data.length > 0) {
-          setClinicians(prev => {
-            const ids = new Set((data as any[]).map(d => d.id));
-            const extra = prev.filter(p => !ids.has(p.id));
+          setClinicians((prev) => {
+            const ids = new Set((data as any[]).map((d) => d.id));
+            const extra = prev.filter((p) => !ids.has(p.id));
             return [...(data as any[]), ...extra];
           });
         }
       })
       .catch(() => {});
 
+    // Restore Supabase Auth session on app load
+    const unsubAuth = onAuthChange(async (user) => {
+      if (!user) return;
+
+      const email = user.email || '';
+
+      // Super admin check (israelerzrakisakye@gmail.com)
+      if (
+        email === 'israelerzrakisakye@gmail.com' ||
+        email === 'israelezrakisakye@gmail.com'
+      ) {
+        setIsDoctorLoggedIn(true);
+        setLoggedInDoctor(null);
+        setCurrentRole('admin');
+        localStorage.setItem('vitanova_doctor_logged_in', 'true');
+        return;
+      }
+
+      // Clinician lookup by email
+      try {
+        const clinician = await fetchClinicianByEmail(email);
+        if (clinician) {
+          setIsDoctorLoggedIn(true);
+          setLoggedInDoctor(clinician as any);
+          setCurrentRole('doctor');
+          localStorage.setItem('vitanova_doctor_logged_in', 'true');
+          localStorage.setItem('vitanova_logged_in_doctor_id', clinician.id);
+        }
+      } catch (_) {}
+    });
+
     return () => {
       unsubNet();
       unsubSync();
+      unsubAuth();
     };
   }, []);
 
@@ -475,82 +511,127 @@ export const App: React.FC = () => {
     callType: 'video' | 'audio';
   } | null>(null);
 
-  // Listen for real incoming calls across tabs and in-app sessions
+  // ── Incoming call listener — Supabase Realtime only (cross-device) ──
   useEffect(() => {
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel('vitanova_telehealth_call');
-      channel.onmessage = (event) => {
-        if (event.data?.type === 'INCOMING_CALL' && event.data.clinician) {
-          const targetDoc = event.data.clinician as HealthcareWorker;
-          // Check if current user is logged in as a doctor or admin to receive call
-          if (isDoctorLoggedIn) {
-            // Ring if admin is logged in OR if the logged in doctor matches the target doctor
-            const shouldRing = !loggedInDoctor || loggedInDoctor.id === targetDoc.id || loggedInDoctor.email === targetDoc.email;
-            if (shouldRing) {
-              setIncomingCall({
-                callerName: event.data.callerName || 'Guest Patient (In-App Caller)',
-                clinician: targetDoc,
-                callType: event.data.callType || 'video'
-              });
-            }
-          }
+    if (!isDoctorLoggedIn) return;
+
+    const handleIncomingSignal = (callerName: string, callType: 'video' | 'audio', targetDoc: HealthcareWorker) => {
+      const shouldRing =
+        !loggedInDoctor ||
+        loggedInDoctor.id === targetDoc.id ||
+        loggedInDoctor.email === targetDoc.email;
+      if (shouldRing) {
+        setIncomingCall({ callerName, clinician: targetDoc, callType });
+      }
+    };
+
+    // Subscribe to all clinician IDs so any logged-in doctor can receive
+    const unsubscribers: Array<() => void> = [];
+    clinicians.forEach((doc) => {
+      const unsub = subscribeToCallSignals(doc.id, (signal) => {
+        if (signal.signalType === 'INCOMING_CALL') {
+          handleIncomingSignal(signal.callerName, signal.callType, doc);
         }
-      };
-    } catch (_) {}
+      });
+      if (unsub) unsubscribers.push(unsub);
+    });
 
     return () => {
-      channel?.close();
+      unsubscribers.forEach((u) => u());
     };
-  }, [isDoctorLoggedIn, loggedInDoctor]);
+  }, [isDoctorLoggedIn, loggedInDoctor, clinicians]);
 
-  const handleUpdateClinicians = (updated: HealthcareWorker[]) => {
+  const handleUpdateClinicians = async (updated: HealthcareWorker[]) => {
     setClinicians(updated);
     try {
       localStorage.setItem('vitanova_custom_clinicians', JSON.stringify(updated));
     } catch (e) {
       console.warn('Could not save clinicians to localStorage:', e);
     }
+    // Also push to Supabase clinicians table so it persists across devices & reloads
+    try {
+      for (const doc of updated) {
+        await upsertClinician({
+          id: doc.id,
+          name: doc.name,
+          profession: doc.profession,
+          specialty: doc.specialty,
+          email: doc.email || '',
+          phone: doc.phone || '',
+          whatsapp: doc.whatsapp || '',
+          experienceYears: doc.experienceYears || 5,
+          feeUGX: doc.feeUGX || 45000,
+          bio: doc.bio || '',
+          languages: doc.languages || ['English'],
+          verified: doc.verified !== false,
+          available: doc.available !== false,
+          hospitalAffiliation: doc.hospitalAffiliation || ''
+        });
+      }
+    } catch (err) {
+      console.warn('[VitaNova] Could not sync clinicians to Supabase:', err);
+    }
   };
 
-  // Doctor & Admin Portal Authentication Handler
-  // Supports Super Admin (israelerzrakisakye@gmail.com / 88888888) AND any Doctor account created by Admin
-  const handleDoctorLogin = (email: string, pass: string): boolean => {
+  // ── Doctor & Admin Login via Supabase Auth ─────────────────────────────────
+  // Returns: 'ok' | error message string
+  const handleDoctorLogin = async (email: string, pass: string): Promise<string | true> => {
+    setAuthLoading(true);
     const cleanEmail = email.toLowerCase().trim();
 
-    // 1. Super Admin Account
+    // Try Supabase Auth sign-in
+    const { user, error } = await signInDoctor(cleanEmail, pass);
+    setAuthLoading(false);
+
+    if (error || !user) {
+      // Fallback: super admin with hardcoded PIN (for offline or first-time use)
+      if (
+        (cleanEmail === 'israelerzrakisakye@gmail.com' || cleanEmail === 'israelezrakisakye@gmail.com') &&
+        pass === '88888888'
+      ) {
+        setIsDoctorLoggedIn(true);
+        setLoggedInDoctor(null);
+        setCurrentRole('admin');
+        setActiveTab('admin');
+        localStorage.setItem('vitanova_doctor_logged_in', 'true');
+        localStorage.removeItem('vitanova_logged_in_doctor_id');
+        return true;
+      }
+      return error || 'Invalid email or password';
+    }
+
+    // Supabase Auth succeeded — identify role
     if (
-      (cleanEmail === 'israelerzrakisakye@gmail.com' || cleanEmail === 'israelezrakisakye@gmail.com') &&
-      pass === '88888888'
+      cleanEmail === 'israelerzrakisakye@gmail.com' ||
+      cleanEmail === 'israelezrakisakye@gmail.com'
     ) {
       setIsDoctorLoggedIn(true);
       setLoggedInDoctor(null);
       setCurrentRole('admin');
       setActiveTab('admin');
       localStorage.setItem('vitanova_doctor_logged_in', 'true');
-      localStorage.removeItem('vitanova_logged_in_doctor_id');
       return true;
     }
 
-    // 2. Doctor accounts created by Admin in clinicians registry
-    const matchedDoctor = clinicians.find(
-      (c) => c.email && c.email.toLowerCase().trim() === cleanEmail && (c.password || '88888888') === pass
-    );
-
-    if (matchedDoctor) {
+    // Check if this user is an authorized clinician
+    const clinician = await fetchClinicianByEmail(cleanEmail);
+    if (clinician) {
       setIsDoctorLoggedIn(true);
-      setLoggedInDoctor(matchedDoctor);
+      setLoggedInDoctor(clinician as any);
       setCurrentRole('doctor');
       setActiveTab('consultation');
       localStorage.setItem('vitanova_doctor_logged_in', 'true');
-      localStorage.setItem('vitanova_logged_in_doctor_id', matchedDoctor.id);
+      localStorage.setItem('vitanova_logged_in_doctor_id', clinician.id);
       return true;
     }
 
-    return false;
+    // Signed in to Supabase Auth but not authorized as clinician
+    await signOutDoctor();
+    return 'Your account is not yet authorized by the admin. Please contact VitaNova admin.';
   };
 
-  const handleDoctorLogout = () => {
+  const handleDoctorLogout = async () => {
+    await signOutDoctor();
     setIsDoctorLoggedIn(false);
     setLoggedInDoctor(null);
     setCurrentRole('patient');
@@ -559,25 +640,23 @@ export const App: React.FC = () => {
     localStorage.removeItem('vitanova_logged_in_doctor_id');
   };
 
-  // Direct In-App Call Initiation — opens real encrypted video/audio modal and rings doctor's app
-  // Patient can call whether they have an account or do NOT have an account (Guest Mode)
+  // Direct In-App Call Initiation — Supabase Realtime only (no BroadcastChannel)
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
     setActiveCallClinician(clinician);
     setCallType(type);
 
-    const callerDisplayName = patient?.fullName?.trim() ? patient.fullName : 'Guest Patient (In-App Caller)';
+    const callerDisplayName = patient?.fullName?.trim() ? patient.fullName : 'Guest Patient';
 
-    // Broadcast call to doctor's registered session
-    try {
-      const channel = new BroadcastChannel('vitanova_telehealth_call');
-      channel.postMessage({
-        type: 'INCOMING_CALL',
-        clinician,
-        callerName: callerDisplayName,
-        callType: type,
-        timestamp: Date.now()
-      });
-    } catch (_) {}
+    // Send via Supabase Realtime — rings doctor on any device they're logged in from
+    sendCallSignal({
+      signalType: 'INCOMING_CALL',
+      fromRole: 'patient',
+      callerName: callerDisplayName,
+      targetClinicianId: clinician.id,
+      callType: type
+    }).catch(() => {
+      console.warn('[VitaNova] Could not reach Supabase to signal call — no BroadcastChannel fallback.');
+    });
   };
 
   const handleOpenDirectChat = (_clinician: HealthcareWorker) => {
@@ -814,48 +893,62 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* ── REAL IN-APP INCOMING CALL RINGING OVERLAY FOR DOCTORS ── */}
+      {/* ── INCOMING CALL — WhatsApp-style full overlay ── */}
       {incomingCall && (
-        <div className="fixed top-5 right-5 z-[10001] bg-slate-900 border-2 border-teal-500 rounded-3xl p-5 shadow-2xl max-w-sm w-full animate-bounce-subtle backdrop-blur-xl">
-          <div className="flex items-center space-x-3">
-            <div className="relative shrink-0">
+        <div className="fixed inset-0 z-[10001] bg-black/70 backdrop-blur-md flex items-center justify-center">
+          <div className="bg-slate-900 rounded-[2.5rem] p-8 w-[340px] mx-4 shadow-2xl border border-slate-700/40 text-center">
+            {/* Pulsing avatar */}
+            <div className="relative w-28 h-28 mx-auto mb-5">
+              <span className="absolute inset-0 rounded-full bg-emerald-500/25 animate-ping" />
+              <span className="absolute inset-1 rounded-full bg-emerald-500/15 animate-pulse" />
               <img
-                src={incomingCall.clinician.avatar}
-                alt={incomingCall.clinician.name}
-                className="w-12 h-12 rounded-2xl object-cover border-2 border-teal-400"
+                src={incomingCall.callType === 'video'
+                  ? (incomingCall.clinician.avatar || '/ki_ezra_avatar.jpg')
+                  : (incomingCall.clinician.avatar || '/ki_ezra_avatar.jpg')}
+                alt={incomingCall.callerName}
+                className="relative w-full h-full rounded-full object-cover border-4 border-emerald-500 shadow-xl"
               />
-              <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center animate-ping" />
             </div>
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-teal-400">Incoming Telehealth Call</span>
-              <h4 className="text-sm font-bold text-white truncate">{incomingCall.callerName}</h4>
-              <p className="text-[11px] text-slate-300 truncate">
-                To: {incomingCall.clinician.name} ({incomingCall.callType === 'video' ? 'Video' : 'Voice'})
-              </p>
-              <p className="text-[10px] text-teal-400 font-semibold flex items-center space-x-1 mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                <span>Direct In-App Line • Encrypted</span>
-              </p>
-            </div>
-          </div>
 
-          <div className="flex items-center space-x-2 mt-4">
-            <button
-              onClick={() => {
-                setActiveCallClinician(incomingCall.clinician);
-                setCallType(incomingCall.callType);
-                setIncomingCall(null);
-              }}
-              className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 transition-all"
-            >
-              Answer Call
-            </button>
-            <button
-              onClick={() => setIncomingCall(null)}
-              className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all"
-            >
-              Decline
-            </button>
+            {/* Call type badge */}
+            <p className="text-[11px] font-extrabold uppercase tracking-widest text-emerald-400 mb-1 flex items-center justify-center space-x-1">
+              {incomingCall.callType === 'video'
+                ? <><Video className="w-3.5 h-3.5" /><span>Video Call</span></>
+                : <><Phone className="w-3.5 h-3.5" /><span>Voice Call</span></>}
+            </p>
+
+            {/* Caller name */}
+            <h2 className="text-2xl font-bold text-white tracking-tight">{incomingCall.callerName}</h2>
+            <p className="text-sm text-slate-400 mt-0.5">VitaNova Patient</p>
+
+            {/* Answer / Decline */}
+            <div className="flex items-center justify-center space-x-12 mt-10">
+              {/* Decline */}
+              <div className="flex flex-col items-center space-y-2">
+                <button
+                  onClick={() => setIncomingCall(null)}
+                  className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 active:scale-95 flex items-center justify-center shadow-lg shadow-rose-600/30 transition-all"
+                >
+                  <PhoneOff className="w-7 h-7 text-white" />
+                </button>
+                <span className="text-xs text-slate-400">Decline</span>
+              </div>
+
+              {/* Answer */}
+              <div className="flex flex-col items-center space-y-2">
+                <button
+                  onClick={() => {
+                    setActiveCallClinician(incomingCall.clinician);
+                    setCallType(incomingCall.callType);
+                    setIncomingCall(null);
+                  }}
+                  className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all"
+                >
+                  <Phone className="w-7 h-7 text-white" />
+                </button>
+                <span className="text-xs text-slate-400">Answer</span>
+              </div>
+            </div>
           </div>
         </div>
       )}

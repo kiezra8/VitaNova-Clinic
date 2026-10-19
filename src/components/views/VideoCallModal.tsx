@@ -20,6 +20,7 @@ import {
   Radio
 } from 'lucide-react';
 import { HealthcareWorker } from '../../types';
+import { sendCallSignal, subscribeToCallSignals } from '../../lib/supabase';
 
 interface VideoCallModalProps {
   clinician: HealthcareWorker;
@@ -86,7 +87,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     };
   }, []);
 
-  // WebRTC Setup & Peer Connection over BroadcastChannel
+  // WebRTC Setup & Peer Connection over Supabase Realtime & BroadcastChannel
   useEffect(() => {
     let active = true;
     const channel = new BroadcastChannel('vitanova_webrtc_signaling');
@@ -117,12 +118,21 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
 
     // Handle ICE Candidates
     pc.onicecandidate = (event) => {
-      if (event.candidate && channel) {
-        channel.postMessage({
-          type: 'ICE_CANDIDATE',
-          candidate: event.candidate,
-          role: userRole
-        });
+      if (event.candidate) {
+        if (channel) {
+          channel.postMessage({
+            type: 'ICE_CANDIDATE',
+            candidate: event.candidate,
+            role: userRole
+          });
+        }
+        sendCallSignal({
+          signalType: 'ICE',
+          fromRole: userRole,
+          callerName: isDoctor ? clinician.name : memberName,
+          targetClinicianId: clinician.id,
+          payload: { candidate: event.candidate }
+        }).catch(() => {});
       }
     };
 
@@ -155,7 +165,6 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         streamRef.current = stream;
         setHasCameraPermission(true);
 
-        // If audio-only call was requested initially, disable video track
         if (callType === 'audio') {
           stream.getVideoTracks().forEach((vt) => {
             vt.enabled = false;
@@ -182,9 +191,17 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
             sdp: offer,
             senderName: memberName
           });
+          sendCallSignal({
+            signalType: 'OFFER',
+            fromRole: 'patient',
+            callerName: memberName,
+            targetClinicianId: clinician.id,
+            callType,
+            payload: { sdp: offer }
+          }).catch(() => {});
         }
       } catch (err) {
-        console.warn('[VitaNova Call] Media stream permission warning:', err);
+        console.warn('[VitaNova Call] Media stream warning:', err);
         if (active) {
           setHasCameraPermission(false);
           setIsConnecting(false);
@@ -198,15 +215,12 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       }
     };
 
-    // Listen to WebRTC signaling messages from the other participant's tab
-    channel.onmessage = async (event) => {
-      const data = event.data;
-      if (!data || !active) return;
-
+    // Helper to process incoming signals (from Supabase Realtime or BroadcastChannel)
+    const handleSignal = async (type: string, payload: any) => {
+      if (!active) return;
       try {
-        if (data.type === 'OFFER' && userRole === 'doctor') {
-          // Doctor receives offer from patient
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        if (type === 'OFFER' && userRole === 'doctor' && payload?.sdp) {
+          await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           channel.postMessage({
@@ -214,33 +228,64 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
             sdp: answer,
             senderName: clinician.name
           });
+          sendCallSignal({
+            signalType: 'ANSWER',
+            fromRole: 'doctor',
+            callerName: clinician.name,
+            targetClinicianId: clinician.id,
+            payload: { sdp: answer }
+          }).catch(() => {});
           setIsPeerConnected(true);
           setIsConnecting(false);
-        } else if (data.type === 'ANSWER' && userRole === 'patient') {
-          // Patient receives answer from doctor
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          setIsPeerConnected(true);
-          setIsConnecting(false);
-        } else if (data.type === 'ICE_CANDIDATE' && data.candidate) {
-          if (pc.remoteDescription) {
-            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else if (type === 'ANSWER' && userRole === 'patient' && payload?.sdp) {
+          if (pc.signalingState !== 'stable') {
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            setIsPeerConnected(true);
+            setIsConnecting(false);
           }
-        } else if (data.type === 'CALL_CHAT') {
-          setChatMessages((prev) => [...prev, data.message]);
-        } else if (data.type === 'CALL_ENDED') {
+        } else if (type === 'ICE' || type === 'ICE_CANDIDATE') {
+          const cand = payload?.candidate;
+          if (cand && pc.remoteDescription) {
+            await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+          }
+        } else if (type === 'CALL_CHAT' && payload?.message) {
+          setChatMessages((prev) => [...prev, payload.message]);
+        } else if (type === 'CALL_ENDED' || type === 'HANGUP' || type === 'DECLINE') {
           onEnd();
         }
       } catch (e) {
-        console.warn('[VitaNova Call] WebRTC signal exchange:', e);
+        console.warn('[VitaNova Call] Signal processing error:', e);
       }
+    };
+
+    // Supabase Realtime subscription (cross-device)
+    const unsubSupabase = subscribeToCallSignals(clinician.id, (signal) => {
+      handleSignal(signal.signalType, signal.payload);
+    });
+
+    // BroadcastChannel subscription (same-device tab test)
+    channel.onmessage = (event) => {
+      const data = event.data;
+      if (!data) return;
+      handleSignal(data.type, data);
     };
 
     initLocalMedia();
 
     return () => {
       active = false;
-      channel.postMessage({ type: 'CALL_ENDED' });
-      channel.close();
+      unsubSupabase();
+      try {
+        channel.postMessage({ type: 'CALL_ENDED' });
+        channel.close();
+      } catch (_) {}
+
+      sendCallSignal({
+        signalType: 'HANGUP',
+        fromRole: userRole,
+        callerName: isDoctor ? clinician.name : memberName,
+        targetClinicianId: clinician.id
+      }).catch(() => {});
 
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
@@ -251,7 +296,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         pcRef.current = null;
       }
     };
-  }, [userRole, memberName, callType, clinician.name, onEnd]);
+  }, [userRole, memberName, callType, clinician.id, clinician.name, onEnd]);
 
   // Handle Mute Mic toggle
   const handleToggleMic = () => {
@@ -300,6 +345,12 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   // Handle Hang up
   const handleHangUp = () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    sendCallSignal({
+      signalType: 'HANGUP',
+      fromRole: userRole,
+      callerName: isDoctor ? clinician.name : memberName,
+      targetClinicianId: clinician.id
+    }).catch(() => {});
     if (channelRef.current) {
       try {
         channelRef.current.postMessage({ type: 'CALL_ENDED' });
@@ -491,48 +542,27 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
                   </div>
                 </div>
               ) : (
-                // Ringing / Waiting State for the other participant
-                <div className="relative w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 p-6 text-center space-y-4">
-                  <div className="relative">
+                // Clean WhatsApp-style Ringing Screen
+                <div className="relative w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 p-6 text-center">
+                  <div className="relative mb-6">
+                    <span className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping scale-110" />
+                    <span className="absolute -inset-2 rounded-full bg-emerald-500/10 animate-pulse" />
                     <img
                       src={clinician.avatar}
                       alt={clinician.name}
-                      className="w-28 h-28 sm:w-36 sm:h-36 rounded-full object-cover border-4 border-teal-500/60 shadow-2xl shadow-teal-500/20"
+                      className="relative w-32 h-32 sm:w-40 sm:h-40 rounded-full object-cover border-4 border-emerald-500 shadow-2xl shadow-emerald-500/20"
                     />
-                    <div className="absolute inset-0 rounded-full border-4 border-teal-400 animate-ping opacity-25" />
                   </div>
 
-                  <div className="space-y-1.5 max-w-md">
-                    <h3 className="text-lg sm:text-xl font-bold text-white">
-                      {isDoctor ? `Connecting to ${memberName}...` : `Calling ${clinician.name}...`}
-                    </h3>
-                    <p className="text-xs text-teal-400 font-medium">
-                      {remotePartyTitle}
-                    </p>
-                    <p className="text-xs text-slate-400 pt-1 leading-relaxed">
-                      {isDoctor
-                        ? 'Waiting for patient stream handshake. The encrypted audio & video channel is open.'
-                        : 'Line is ringing directly on Dr. Israel Kisakye’s registered device. Open another tab and sign in as doctor to talk live.'}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center space-x-2 pt-2">
-                    <button
-                      onClick={() => setTestMirrorMode(true)}
-                      className="px-4 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-300 font-bold text-xs transition-colors"
-                    >
-                      Test Camera & Audio Now
-                    </button>
-                    {!isDoctor && (
-                      <button
-                        onClick={() => window.open(window.location.origin, '_blank')}
-                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs transition-colors flex items-center space-x-1"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Open Doctor Portal</span>
-                      </button>
-                    )}
-                  </div>
+                  <h3 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                    {remotePartyName}
+                  </h3>
+                  <p className="text-sm font-medium text-emerald-400 mt-1">
+                    {isPeerConnected ? 'Connected' : 'Ringing...'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {callType === 'video' ? 'VitaNova Video Call' : 'VitaNova Voice Call'}
+                  </p>
                 </div>
               )}
 

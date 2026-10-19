@@ -1,44 +1,81 @@
 // VitaNova Clinic — Supabase Client
-// Free tier: 500MB DB, 50k MAU, 1GB storage, 2GB bandwidth/month
-// Dashboard: https://supabase.com/dashboard
+// Project: skthogttabcvfvhqujra (https://skthogttabcvfvhqujra.supabase.co)
+// Free tier: 500MB DB, 50k MAU, 1GB storage, 2GB bandwidth/month — no subscription needed
 
 import { createClient } from '@supabase/supabase-js';
 
-// These come from your Supabase project Settings → API
-// Supabase project credentials (configured with project hriftnnnhrocnhzduzrb)
-const DEFAULT_SUPABASE_URL = 'https://hriftnnnhrocnhzduzrb.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhyaWZ0bm5uaHJvY25oemR1enJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NDc3NzUsImV4cCI6MjEwNDQyMzc3NX0.i_BB941oxs4HXb1wSaLwzVenrf8XTy25DIZ9Bwvb7cY';
+// ── Supabase Project Credentials ──────────────────────────────────────────────
+const SUPABASE_URL = 'https://skthogttabcvfvhqujra.supabase.co';
+const SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrdGhvZ3R0YWJjdmZ2aHF1anJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NjM1MzIsImV4cCI6MjEwNzUzOTUzMn0.EP3YFzoBVY7bumfTJpDgzwu7RwdWuqJU-0ekDop21pM';
 
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) || DEFAULT_SUPABASE_URL;
-const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || DEFAULT_SUPABASE_ANON_KEY;
+// ── Supabase Client Instance ───────────────────────────────────────────────────
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    storageKey: 'vitanova_auth'
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 5 // Conservative for Uganda's mobile networks
+    }
+  },
+  global: {
+    headers: {
+      'X-VitaNova-Client': 'pwa-v1.0'
+    }
+  }
+});
 
-// Create the Supabase client (works with live project + offline-first sync fallback)
-export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_URL !== 'YOUR_PROJECT_URL'
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        storageKey: 'vitanova_auth'
-      },
-      realtime: {
-        params: {
-          eventsPerSecond: 5 // Conservative for Uganda's network
-        }
-      },
-      global: {
-        headers: {
-          'X-VitaNova-Client': 'pwa-v1.0'
-        }
-      }
-    })
-  : null;
+export const isSupabaseReady = (): boolean => true; // Always ready with real project
 
-export const isSupabaseReady = (): boolean => supabase !== null;
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH — Doctor / Nurse Login via Supabase Auth (Email + Password)
+// The admin registers a clinician's email in the `clinicians` table (verified=true).
+// The clinician then signs up with that email via Supabase Auth.
+// On login, we check if their email matches a verified clinician row.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ── CLINICIANS API ────────────────────────────────────────────────────────────
+/** Sign up a new doctor account via Supabase Auth */
+export const signUpDoctor = async (email: string, password: string) => {
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) return { user: null, error: error.message };
+  return { user: data.user, error: null };
+};
+
+/** Sign in a doctor/nurse/admin via Supabase Auth */
+export const signInDoctor = async (email: string, password: string) => {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) return { user: null, session: null, error: error.message };
+  return { user: data.user, session: data.session, error: null };
+};
+
+/** Sign out current doctor session */
+export const signOutDoctor = async () => {
+  await supabase.auth.signOut();
+};
+
+/** Get the current authenticated user session */
+export const getCurrentSession = async () => {
+  const { data } = await supabase.auth.getSession();
+  return data.session;
+};
+
+/** Subscribe to auth state changes */
+export const onAuthChange = (callback: (user: any) => void) => {
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    callback(session?.user || null);
+  });
+  return () => subscription.unsubscribe();
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLINICIANS API — Admin manages the clinician registry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Fetch all verified clinicians (public-facing, for patients) */
 export const fetchClinicians = async () => {
-  if (!supabase) return null;
-
   const { data, error } = await supabase
     .from('clinicians')
     .select('*')
@@ -46,12 +83,11 @@ export const fetchClinicians = async () => {
     .order('rating', { ascending: false });
 
   if (error) {
-    console.error('[VitaNova Supabase] fetchClinicians error:', error.message);
+    console.error('[VitaNova] fetchClinicians error:', error.message);
     return null;
   }
 
-  // Map snake_case DB columns → camelCase TypeScript
-  return data.map(c => ({
+  return data.map((c) => ({
     id: c.id,
     name: c.name,
     profession: c.profession,
@@ -62,143 +98,310 @@ export const fetchClinicians = async () => {
     feeUGX: c.fee_ugx,
     avatar: c.avatar_url,
     bio: c.bio,
-    languages: c.languages,
-    rating: parseFloat(c.rating),
-    reviewCount: c.review_count
+    languages: c.languages || [],
+    rating: parseFloat(c.rating || '5.0'),
+    reviewCount: c.review_count || 0,
+    email: c.email,
+    phone: c.phone,
+    whatsapp: c.whatsapp,
+    registrationNumber: c.registration_number,
+    education: c.education,
+    hospitalAffiliation: c.hospital_affiliation,
+    inAppCallRoom: `vitanova-${c.id.replace(/_/g, '-')}`
   }));
 };
 
-// ── VITAL RECORDS API ─────────────────────────────────────────────────────────
-export const pushVitalRecord = async (memberId: string, vital: Record<string, any>) => {
-  if (!supabase) return null;
+/** Fetch a single clinician by their registered email (used after auth login) */
+export const fetchClinicianByEmail = async (email: string) => {
+  const { data, error } = await supabase
+    .from('clinicians')
+    .select('*')
+    .eq('email', email.toLowerCase().trim())
+    .eq('verified', true)
+    .single();
+
+  if (error || !data) return null;
+
+  return {
+    id: data.id,
+    name: data.name,
+    profession: data.profession,
+    specialty: data.specialty,
+    experienceYears: data.experience_years,
+    verified: data.verified,
+    available: data.available,
+    feeUGX: data.fee_ugx,
+    avatar: data.avatar_url,
+    bio: data.bio,
+    languages: data.languages || [],
+    rating: parseFloat(data.rating || '5.0'),
+    reviewCount: data.review_count || 0,
+    email: data.email,
+    phone: data.phone,
+    whatsapp: data.whatsapp,
+    registrationNumber: data.registration_number,
+    education: data.education,
+    hospitalAffiliation: data.hospital_affiliation,
+    inAppCallRoom: `vitanova-${data.id.replace(/_/g, '-')}`
+  };
+};
+
+/**
+ * Create or update a clinician record in Supabase (admin only).
+ * Includes photo upload to Supabase Storage if a File is provided.
+ */
+export const upsertClinician = async (
+  clinicianData: {
+    id?: string;
+    name: string;
+    profession: string;
+    specialty: string;
+    email: string;
+    phone?: string;
+    whatsapp?: string;
+    experienceYears: number;
+    feeUGX: number;
+    bio: string;
+    languages: string[];
+    registrationNumber?: string;
+    education?: string;
+    hospitalAffiliation?: string;
+    verified?: boolean;
+    available?: boolean;
+  },
+  photoFile?: File | null
+) => {
+  let avatarUrl = '';
+
+  // 1. Upload photo to Supabase Storage if a file was provided
+  if (photoFile) {
+    const ext = photoFile.name.split('.').pop() || 'jpg';
+    const filePath = `clinicians/${clinicianData.id || 'new_' + Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('vitanova-assets')
+      .upload(filePath, photoFile, { upsert: true, contentType: photoFile.type });
+
+    if (uploadError) {
+      console.error('[VitaNova] Photo upload error:', uploadError.message);
+    } else {
+      const { data: urlData } = supabase.storage
+        .from('vitanova-assets')
+        .getPublicUrl(filePath);
+      avatarUrl = urlData.publicUrl;
+    }
+  }
+
+  // 2. Build the DB row
+  const row: Record<string, any> = {
+    name: clinicianData.name.trim(),
+    profession: clinicianData.profession,
+    specialty: clinicianData.specialty.trim(),
+    email: clinicianData.email.toLowerCase().trim(),
+    phone: clinicianData.phone || '',
+    whatsapp: clinicianData.whatsapp || clinicianData.phone || '',
+    experience_years: clinicianData.experienceYears,
+    fee_ugx: clinicianData.feeUGX,
+    bio: clinicianData.bio.trim(),
+    languages: clinicianData.languages,
+    registration_number: clinicianData.registrationNumber || '',
+    education: clinicianData.education || '',
+    hospital_affiliation: clinicianData.hospitalAffiliation || '',
+    verified: clinicianData.verified !== false, // Default: true
+    available: clinicianData.available !== false,
+    rating: 5.0,
+    review_count: 1
+  };
+
+  if (avatarUrl) {
+    row.avatar_url = avatarUrl;
+  }
+
+  if (clinicianData.id) {
+    row.id = clinicianData.id;
+  }
 
   const { data, error } = await supabase
-    .from('vital_records')
-    .insert({
-      id: vital.id,
-      member_id: memberId,
-      recorded_at: vital.recordedAt || new Date().toISOString(),
-      recorded_by: vital.recordedBy || 'self',
-      source: vital.source || 'manual',
-      systolic_bp: vital.systolicBP,
-      diastolic_bp: vital.diastolicBP,
-      heart_rate: vital.heartRate,
-      spo2: vital.spO2,
-      temperature: vital.temperature,
-      blood_glucose: vital.bloodGlucose,
-      weight_kg: vital.weightKg,
-      height_cm: vital.heightCm,
-      notes: vital.notes,
-      device_id: vital.deviceId,
-      sync_status: 'synced'
-    })
+    .from('clinicians')
+    .upsert(row, { onConflict: 'id' })
     .select()
     .single();
 
   if (error) {
-    console.error('[VitaNova Supabase] pushVitalRecord error:', error.message);
+    console.error('[VitaNova] upsertClinician error:', error.message);
+    return { data: null, error: error.message };
+  }
+
+  return { data, error: null };
+};
+
+/** Delete a clinician from the registry */
+export const deleteClinician = async (clinicianId: string) => {
+  const { error } = await supabase
+    .from('clinicians')
+    .delete()
+    .eq('id', clinicianId);
+
+  if (error) return { error: error.message };
+  return { error: null };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VITAL RECORDS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const pushVitalRecord = async (memberId: string, vital: Record<string, any>) => {
+  const { data, error } = await supabase
+    .from('vital_records')
+    .upsert({
+      id: vital.id,
+      member_id: memberId,
+      recorded_at: vital.recordedAt || vital.timestamp || new Date().toISOString(),
+      systolic_bp: vital.systolicBP,
+      diastolic_bp: vital.diastolicBP,
+      heart_rate: vital.heartRate,
+      temperature: vital.temperature,
+      spo2: vital.spO2,
+      weight_kg: vital.weightKg,
+      glucose_mg_dl: vital.glucoseMgDl,
+      notes: vital.notes,
+      recorded_by: vital.recordedBy,
+      recorded_by_role: vital.recordedByRole
+    }, { onConflict: 'id' })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[VitaNova] pushVitalRecord error:', error.message);
     return null;
   }
   return data;
 };
 
-export const fetchVitalRecords = async (memberId: string, limit = 30) => {
-  if (!supabase) return null;
-
+export const fetchVitalRecords = async (memberId: string) => {
   const { data, error } = await supabase
     .from('vital_records')
     .select('*')
     .eq('member_id', memberId)
     .order('recorded_at', { ascending: false })
-    .limit(limit);
+    .limit(100);
 
   if (error) {
-    console.error('[VitaNova Supabase] fetchVitalRecords error:', error.message);
+    console.error('[VitaNova] fetchVitalRecords error:', error.message);
     return null;
   }
   return data;
 };
 
-// ── HOME CARE REQUESTS API ────────────────────────────────────────────────────
-export const pushHomeCareRequest = async (memberId: string, request: Record<string, any>) => {
-  if (!supabase) return null;
+// ─────────────────────────────────────────────────────────────────────────────
+// MEDICAL RECORDS / CONSULTATIONS
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const { data, error } = await supabase
-    .from('home_care_requests')
-    .insert({
-      id: request.id,
-      member_id: memberId,
-      request_type: request.requestType,
-      urgency: request.urgency,
-      scheduled_date: request.scheduledDate,
-      scheduled_time: request.scheduledTime,
-      address: request.address,
-      district: request.district || 'Kampala',
-      notes: request.notes,
-      fee_ugx: request.feeUGX || 35000,
-      status: 'pending'
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error('[VitaNova Supabase] pushHomeCareRequest error:', error.message);
-    return null;
-  }
-  return data;
-};
-
-// ── CONSULTATION MESSAGES API ─────────────────────────────────────────────────
 export const sendConsultationMessage = async (
   memberId: string,
   clinicianId: string,
   messageText: string
 ) => {
-  if (!supabase) return null;
-
   const { data, error } = await supabase
     .from('consultations')
     .insert({
       member_id: memberId,
       clinician_id: clinicianId,
       message_text: messageText,
-      is_from_member: true
+      sent_at: new Date().toISOString(),
+      direction: 'patient_to_doctor',
+      status: 'delivered'
     })
     .select()
     .single();
 
   if (error) {
-    console.error('[VitaNova Supabase] sendConsultationMessage error:', error.message);
+    console.error('[VitaNova] sendConsultationMessage error:', error.message);
     return null;
   }
   return data;
 };
 
-export const fetchMessages = async (memberId: string, clinicianId: string) => {
-  if (!supabase) return null;
-
+export const fetchConsultationHistory = async (memberId: string, clinicianId: string) => {
   const { data, error } = await supabase
     .from('consultations')
     .select('*')
     .eq('member_id', memberId)
     .eq('clinician_id', clinicianId)
-    .order('created_at', { ascending: true });
+    .order('sent_at', { ascending: true });
 
   if (error) {
-    console.error('[VitaNova Supabase] fetchMessages error:', error.message);
+    console.error('[VitaNova] fetchConsultationHistory error:', error.message);
     return null;
   }
   return data;
 };
 
-// ── REALTIME: Subscribe to new messages from a clinician ─────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// HOME CARE REQUESTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const pushHomeCareRequest = async (memberId: string, request: Record<string, any>) => {
+  const { data, error } = await supabase
+    .from('home_care_requests')
+    .upsert({
+      id: request.id,
+      member_id: memberId,
+      service_type: request.serviceType,
+      requested_date: request.requestedDate,
+      address: request.address,
+      notes: request.notes,
+      status: request.status || 'pending',
+      assigned_worker_id: request.assignedWorkerId
+    }, { onConflict: 'id' })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[VitaNova] pushHomeCareRequest error:', error.message);
+    return null;
+  }
+  return data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEMBER PROFILES
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const upsertMemberProfile = async (profile: Record<string, any>) => {
+  const { data, error } = await supabase
+    .from('member_profiles')
+    .upsert({
+      id: profile.id,
+      full_name: profile.fullName,
+      date_of_birth: profile.dateOfBirth,
+      sex: profile.sex,
+      phone: profile.phone,
+      email: profile.email,
+      location_district: profile.locationDistrict,
+      membership_tier: profile.membershipTier || 'basic',
+      avatar_url: profile.avatar,
+      health_id: profile.healthId
+    }, { onConflict: 'id' })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[VitaNova] upsertMemberProfile error:', error.message);
+    return null;
+  }
+  return data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REALTIME — Subscribe to new messages
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const subscribeToMessages = (
   memberId: string,
   clinicianId: string,
   onMessage: (msg: any) => void
 ) => {
-  if (!supabase) return null;
-
   const channel = supabase
     .channel(`messages-${memberId}-${clinicianId}`)
     .on(
@@ -216,11 +419,14 @@ export const subscribeToMessages = (
   return () => { supabase.removeChannel(channel); };
 };
 
-// ── BATCH SYNC OUTBOX → Supabase ──────────────────────────────────────────────
-export const pushSyncBatch = async (items: any[]) => {
-  if (!supabase || items.length === 0) return { processed: [] };
+// ─────────────────────────────────────────────────────────────────────────────
+// BATCH SYNC OUTBOX → Supabase
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const rows = items.map(item => ({
+export const pushSyncBatch = async (items: any[]) => {
+  if (items.length === 0) return { processed: [] };
+
+  const rows = items.map((item) => ({
     id: item.id,
     entity: item.entity,
     action: item.action,
@@ -238,11 +444,11 @@ export const pushSyncBatch = async (items: any[]) => {
     .select('id');
 
   if (error) {
-    console.error('[VitaNova Supabase] pushSyncBatch error:', error.message);
+    console.error('[VitaNova] pushSyncBatch error:', error.message);
     return { processed: [] };
   }
 
-  // Also push individual records based on entity type
+  // Also write to entity-specific tables
   for (const item of items) {
     try {
       if (item.entity === 'vitals' && item.action === 'create') {
@@ -250,22 +456,27 @@ export const pushSyncBatch = async (items: any[]) => {
       } else if (item.entity === 'homeVisit' && item.action === 'create') {
         await pushHomeCareRequest(item.userId, item.payload);
       } else if (item.entity === 'consultation' && item.action === 'create') {
-        await sendConsultationMessage(item.userId, item.payload.clinicianId, item.payload.messageText);
+        await sendConsultationMessage(
+          item.userId,
+          item.payload.clinicianId,
+          item.payload.messageText
+        );
       }
     } catch (err) {
-      console.warn('[VitaNova Supabase] Entity push error for', item.entity, err);
+      console.warn('[VitaNova] Entity push error for', item.entity, err);
     }
   }
 
   return {
-    processed: (data || []).map(row => ({ outboxId: row.id, status: 'synced' }))
+    processed: (data || []).map((row) => ({ outboxId: row.id, status: 'synced' }))
   };
 };
 
-// ── HEALTH EDUCATION ARTICLES ─────────────────────────────────────────────────
-export const fetchEducationArticles = async () => {
-  if (!supabase) return null;
+// ─────────────────────────────────────────────────────────────────────────────
+// HEALTH EDUCATION ARTICLES
+// ─────────────────────────────────────────────────────────────────────────────
 
+export const fetchEducationArticles = async () => {
   const { data, error } = await supabase
     .from('education_articles')
     .select('*')
@@ -273,8 +484,92 @@ export const fetchEducationArticles = async () => {
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('[VitaNova Supabase] fetchEducationArticles error:', error.message);
+    console.error('[VitaNova] fetchEducationArticles error:', error.message);
     return null;
   }
   return data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CALL SIGNALS — Cross-Device Telehealth Call Routing via Supabase Realtime
+// Uses Supabase Realtime (free tier, no subscription cost).
+// BroadcastChannel removed — only real Supabase signaling used.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Send a call signal to a specific doctor.
+ * Inserts a row into call_signals; the doctor's subscribed Realtime listener fires.
+ */
+export const sendCallSignal = async (opts: {
+  signalType: 'INCOMING_CALL' | 'OFFER' | 'ANSWER' | 'ICE' | 'DECLINE' | 'HANGUP';
+  fromRole: 'patient' | 'doctor';
+  callerName: string;
+  targetClinicianId: string;
+  callType?: 'video' | 'audio';
+  payload?: Record<string, unknown>;
+}) => {
+  const { data, error } = await supabase
+    .from('call_signals')
+    .insert({
+      signal_type: opts.signalType,
+      from_role: opts.fromRole,
+      caller_name: opts.callerName,
+      target_clinician_id: opts.targetClinicianId,
+      call_type: opts.callType || 'video',
+      payload: opts.payload || {}
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[VitaNova] sendCallSignal error:', error.message);
+    return null;
+  }
+  return data;
+};
+
+/**
+ * Subscribe to incoming call signals for a specific doctor ID.
+ * Fires callback in real-time when a patient calls — works across ANY device.
+ */
+export const subscribeToCallSignals = (
+  clinicianId: string,
+  onSignal: (signal: {
+    signalType: string;
+    callerName: string;
+    callType: 'video' | 'audio';
+    payload: Record<string, unknown>;
+  }) => void
+): (() => void) => {
+  const channel = supabase
+    .channel(`call_signals_${clinicianId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'call_signals',
+        filter: `target_clinician_id=eq.${clinicianId}`
+      },
+      (payload) => {
+        const row = payload.new as Record<string, any>;
+        onSignal({
+          signalType: row.signal_type,
+          callerName: row.caller_name,
+          callType: (row.call_type as 'video' | 'audio') || 'video',
+          payload: (row.payload as Record<string, unknown>) || {}
+        });
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+};
+
+/** Clean up stale call signals older than 10 minutes */
+export const cleanupStaleCallSignals = async () => {
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  await supabase.from('call_signals').delete().lt('created_at', cutoff);
 };

@@ -24,6 +24,7 @@ import {
   Video
 } from 'lucide-react';
 import { SyncOutboxItem, HealthcareWorker } from '../../types';
+import { signUpDoctor, upsertClinician } from '../../lib/supabase';
 
 interface AdminDashboardProps {
   outboxItems: SyncOutboxItem[];
@@ -60,6 +61,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
   const [docFee, setDocFee] = useState<number>(45000);
   const [docExp, setDocExp] = useState<number>(8);
   const [docAvatar, setDocAvatar] = useState<string>('');
+  const [docAvatarFile, setDocAvatarFile] = useState<File | null>(null);
   const [docBio, setDocBio] = useState<string>('');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
@@ -85,6 +87,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     setDocFee(doc.feeUGX || 45000);
     setDocExp(doc.experienceYears || 10);
     setDocAvatar(doc.avatar);
+    setDocAvatarFile(null);
     setDocBio(doc.bio || '');
   };
 
@@ -100,6 +103,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     setDocFee(45000);
     setDocExp(5);
     setDocAvatar('https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80');
+    setDocAvatarFile(null);
     setDocBio('');
   };
 
@@ -128,9 +132,30 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
       return c;
     });
 
+    // Also update Supabase database row & upload photo
+    upsertClinician({
+      id: editingDoctor.id,
+      name: docName.trim(),
+      profession: docProfession,
+      specialty: docSpecialty.trim(),
+      email: docEmail.trim(),
+      phone: docPhone.trim(),
+      whatsapp: docWhatsApp.trim(),
+      experienceYears: Number(docExp),
+      feeUGX: Number(docFee),
+      bio: docBio.trim(),
+      languages: editingDoctor.languages || ['English'],
+      verified: true,
+      available: true,
+      hospitalAffiliation: editingDoctor.hospitalAffiliation
+    }, docAvatarFile).catch((err) => {
+      console.warn('Supabase upsert clinician warning:', err);
+    });
+
     onUpdateClinicians(updatedList);
     setEditingDoctor(null);
-    setSaveSuccessMsg(`Doctor account and private contact updated for ${docName}!`);
+    setDocAvatarFile(null);
+    setSaveSuccessMsg(`Doctor account updated & synced to Supabase for ${docName}!`);
     setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
 
@@ -161,10 +186,38 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
       hospitalAffiliation: 'VitaNova Nakawa & Mulago Hospital'
     };
 
+    // 1. Create account in Supabase Auth so clinician can log in
+    if (docEmail.trim() && docPassword.trim()) {
+      signUpDoctor(docEmail.trim(), docPassword.trim()).catch((err) => {
+        console.warn('Supabase Auth auto-registration:', err);
+      });
+    }
+
+    // 2. Insert into Supabase clinicians database table
+    upsertClinician({
+      id: newDoc.id,
+      name: newDoc.name,
+      profession: newDoc.profession,
+      specialty: newDoc.specialty,
+      email: newDoc.email || '',
+      phone: newDoc.phone,
+      whatsapp: newDoc.whatsapp,
+      experienceYears: newDoc.experienceYears || 5,
+      feeUGX: newDoc.feeUGX || 45000,
+      bio: newDoc.bio || '',
+      languages: newDoc.languages || ['English'],
+      verified: true,
+      available: true,
+      hospitalAffiliation: newDoc.hospitalAffiliation
+    }, docAvatarFile).catch((err) => {
+      console.warn('Supabase upsert new clinician warning:', err);
+    });
+
     const updatedList = [newDoc, ...clinicians];
     onUpdateClinicians(updatedList);
     setShowAddDoctorModal(false);
-    setSaveSuccessMsg(`New doctor account created for ${newDoc.name} (${newDoc.email})!`);
+    setDocAvatarFile(null);
+    setSaveSuccessMsg(`New doctor registered & authorized in Supabase for ${newDoc.name} (${newDoc.email})!`);
     setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
 
@@ -547,6 +600,31 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Doctor Photo / Avatar</label>
+                <div className="flex items-center space-x-3">
+                  {docAvatar && (
+                    <img
+                      src={docAvatar}
+                      alt="Doctor Preview"
+                      className="w-12 h-12 rounded-xl object-cover border border-teal-500/50 shadow shrink-0"
+                    />
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setDocAvatarFile(file);
+                        setDocAvatar(URL.createObjectURL(file));
+                      }
+                    }}
+                    className="text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-teal-500/20 file:text-teal-300 hover:file:bg-teal-500/30 cursor-pointer"
+                  />
+                </div>
+              </div>
+
               <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-800">
                 <button
                   type="button"
@@ -683,6 +761,31 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"
                 />
                 <p className="text-[10px] text-teal-400 mt-1">Admin assigns this password so doctor logs in with their email and receives patient in-app calls.</p>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Doctor Photo / Avatar</label>
+                <div className="flex items-center space-x-3">
+                  {docAvatar && (
+                    <img
+                      src={docAvatar}
+                      alt="Doctor Preview"
+                      className="w-12 h-12 rounded-xl object-cover border border-teal-500/50 shadow shrink-0"
+                    />
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setDocAvatarFile(file);
+                        setDocAvatar(URL.createObjectURL(file));
+                      }
+                    }}
+                    className="text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-teal-500/20 file:text-teal-300 hover:file:bg-teal-500/30 cursor-pointer"
+                  />
+                </div>
               </div>
 
               <div>

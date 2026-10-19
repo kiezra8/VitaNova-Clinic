@@ -28,7 +28,7 @@ interface HeaderProps {
   lowBandwidth: boolean;
   onToggleLowBandwidth: () => void;
   isDoctorLoggedIn: boolean;
-  onDoctorLogin: (email: string, pass: string) => boolean;
+  onDoctorLogin: (email: string, pass: string) => Promise<string | true> | boolean;
   onDoctorLogout: () => void;
 }
 
@@ -62,6 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [loginEmail, setLoginEmail] = useState<string>('israelerzrakisakye@gmail.com');
   const [loginPassword, setLoginPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
 
   useEffect(() => {
     const unsubNet = networkSentinel.subscribe((net, sim) => {
@@ -88,15 +89,24 @@ export const Header: React.FC<HeaderProps> = ({
     networkSentinel.setSimulatedOffline(!isSimulated);
   };
 
-  const handleDoctorLoginSubmit = (e: React.FormEvent) => {
+  const handleDoctorLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
-    const success = onDoctorLogin(loginEmail.trim(), loginPassword.trim());
-    if (success) {
-      setShowDoctorLoginModal(false);
-      setLoginPassword('');
-    } else {
-      setLoginError('Invalid credentials. Sign in with Admin (israelerzrakisakye@gmail.com / 88888888) or any Doctor account created by the Admin.');
+    setLoginLoading(true);
+    try {
+      const res = await onDoctorLogin(loginEmail.trim(), loginPassword.trim());
+      if (res === true) {
+        setShowDoctorLoginModal(false);
+        setLoginPassword('');
+      } else if (typeof res === 'string') {
+        setLoginError(res);
+      } else {
+        setLoginError('Invalid credentials. Sign in with Admin (israelerzrakisakye@gmail.com / 88888888) or an authorized Doctor account.');
+      }
+    } catch (err: any) {
+      setLoginError(err?.message || 'Login failed. Please check network connection.');
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -290,9 +300,11 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs shadow-md shadow-teal-500/20"
+                  disabled={loginLoading}
+                  className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-50 text-slate-950 font-bold text-xs shadow-md shadow-teal-500/20 flex items-center space-x-1.5"
                 >
-                  Sign In as Doctor
+                  {loginLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{loginLoading ? 'Signing in...' : 'Sign In as Doctor'}</span>
                 </button>
               </div>
             </form>
