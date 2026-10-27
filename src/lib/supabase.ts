@@ -657,6 +657,66 @@ export const cleanupStaleCallSignals = async () => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BIDIRECTIONAL CALL SIGNALING ROOM — Supabase Realtime Broadcast
+// Both doctor and patient join the same session-scoped channel.
+// Signals are broadcast to all members of the room (sender is filtered client-side).
+// This is the CORRECT approach — postgres_changes only fires for inserts to a table,
+// and only the subscriber matching target_clinician_id receives it (one-way).
+// Broadcast channels are fully bidirectional and don't require DB writes for SDP/ICE.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BroadcastSignal {
+  type: string;
+  senderId: string;
+  sessionId: string;
+  role: 'patient' | 'doctor';
+  sdp?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+  camOff?: boolean;
+  message?: { sender: string; text: string; time: string };
+  [key: string]: unknown;
+}
+
+/**
+ * Join a bidirectional WebRTC signaling room using Supabase Realtime Broadcast.
+ * Both patient and doctor call this with the same sessionId.
+ * Returns a send function and unsubscribe function.
+ */
+export const joinCallSignalingRoom = (
+  sessionId: string,
+  onSignal: (signal: BroadcastSignal) => void
+): { send: (signal: BroadcastSignal) => void; leave: () => void } => {
+  const channelName = `webrtc_${sessionId}`;
+  const channel = supabase
+    .channel(channelName, {
+      config: {
+        broadcast: { self: false, ack: false }
+      }
+    })
+    .on('broadcast', { event: 'signal' }, (payload) => {
+      if (payload?.payload) {
+        onSignal(payload.payload as BroadcastSignal);
+      }
+    });
+
+  channel.subscribe();
+
+  const send = (signal: BroadcastSignal) => {
+    channel.send({
+      type: 'broadcast',
+      event: 'signal',
+      payload: signal
+    }).catch(() => {});
+  };
+
+  const leave = () => {
+    supabase.removeChannel(channel);
+  };
+
+  return { send, leave };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WHATSAPP-STYLE MESSAGING — Persistent chat between patients & doctors
 // ─────────────────────────────────────────────────────────────────────────────
 

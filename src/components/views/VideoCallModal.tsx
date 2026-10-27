@@ -25,7 +25,9 @@ import {
   sendCallSignal,
   subscribeToCallSignals,
   fetchRecentCallSignals,
-  CallSignalEvent
+  CallSignalEvent,
+  joinCallSignalingRoom,
+  BroadcastSignal
 } from '../../lib/supabase';
 import {
   startRingbackTone,
@@ -257,6 +259,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   // WebRTC refs
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const signalingRoomRef = useRef<{ send: (s: BroadcastSignal) => void; leave: () => void } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const localCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -390,37 +393,30 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   // Main WebRTC & Dual Signaling (Runs ONCE per sessionId — never torn down on re-render!)
   useEffect(() => {
     let active = true;
-    const channelName = `vitanova_webrtc_${clinician.id}`;
-    const bChannel = new BroadcastChannel(channelName);
-    channelRef.current = bChannel;
 
+    // ── Peer Connection ─────────────────────────────────────────────────────────
     const pc = new RTCPeerConnection(rtcConfig);
     pcRef.current = pc;
 
-    // Retransmit all locally generated candidates across both signaling channels
-    const retransmitAllLocalCandidates = () => {
-      if (localCandidatesRef.current.length === 0) return;
-      localCandidatesRef.current.forEach((cand) => {
-        try {
-          bChannel.postMessage({
-            type: 'ICE_CANDIDATE',
-            candidate: cand,
-            senderId: myClientId,
-            sessionId,
-            role: userRole
-          });
-        } catch (_) {}
+    // ── Supabase Realtime Broadcast Room (BIDIRECTIONAL) ──────────────────────
+    // Both doctor and patient join the SAME room keyed by sessionId.
+    // This means signals sent by the doctor ARE received by the patient, and vice versa.
+    let signalingRoom: { send: (s: BroadcastSignal) => void; leave: () => void } | null = null;
 
-        sendCallSignal({
-          signalType: 'ICE',
-          fromRole: userRole,
-          callerName: isDoctor ? clinician.name : memberName,
-          targetClinicianId: clinician.id,
-          sessionId,
-          senderId: myClientId,
-          payload: { candidate: cand }
-        }).catch(() => {});
-      });
+    const sendSignal = (signal: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; camOff?: boolean; message?: any; [k: string]: unknown }) => {
+      const full: BroadcastSignal = {
+        ...signal,
+        type: signal.type,
+        senderId: myClientId,
+        sessionId,
+        role: userRole
+      };
+      // Broadcast via Supabase Realtime (cross-device, bidirectional)
+      signalingRoom?.send(full);
+      // Also via BroadcastChannel for same-device instant sync
+      try {
+        channelRef.current?.postMessage(full);
+      } catch (_) {}
     };
 
     // Safely add or queue candidate
@@ -440,43 +436,71 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       }
     };
 
-    // Handle incoming remote media tracks (handles individual audio + video track arrivals)
+    // Flush buffered ICE candidates
+    const flushPendingCandidates = async () => {
+      if (!pc.remoteDescription) return;
+      const queued = [...pendingCandidatesRef.current];
+      pendingCandidatesRef.current = [];
+      for (const cand of queued) {
+        if (cand && cand.candidate) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn('[WebRTC] Flush candidate error:', e);
+          }
+        }
+      }
+    };
+
+    // Handle remote media tracks
     pc.ontrack = (event) => {
       if (!active) return;
-      console.log('[WebRTC] Remote track arrived:', event.track.kind);
+      console.log('[WebRTC] Remote track arrived:', event.track.kind, event.track.readyState);
 
-      if (event.streams && event.streams[0]) {
-        event.streams[0].getTracks().forEach((track) => {
+      // Always use event.streams[0] first (preferred), fallback to adding individual track
+      const incomingStream = event.streams && event.streams[0]
+        ? event.streams[0]
+        : null;
+
+      if (incomingStream) {
+        incomingStream.getTracks().forEach((track) => {
           track.enabled = true;
           if (!remoteMediaStreamRef.current.getTracks().some((t) => t.id === track.id)) {
             remoteMediaStreamRef.current.addTrack(track);
           }
         });
-      } else if (event.track) {
+      } else {
         event.track.enabled = true;
         if (!remoteMediaStreamRef.current.getTracks().some((t) => t.id === event.track.id)) {
           remoteMediaStreamRef.current.addTrack(event.track);
         }
       }
 
-      // Create a fresh composite stream so React and video/audio elements trigger updates
-      const compositeStream = new MediaStream(remoteMediaStreamRef.current.getTracks());
-      setRemoteStream(compositeStream);
+      // When a track becomes active/live, refresh the stream binding
+      event.track.onunmute = () => {
+        if (!active) return;
+        const composite = new MediaStream(remoteMediaStreamRef.current.getTracks());
+        setRemoteStream(composite);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = composite;
+          remoteVideoRef.current.play().catch(() => {});
+        }
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = composite;
+          remoteAudioRef.current.play().catch(() => {});
+        }
+      };
+
+      const composite = new MediaStream(remoteMediaStreamRef.current.getTracks());
+      setRemoteStream(composite);
 
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = compositeStream;
-        const vp = remoteVideoRef.current.play();
-        if (vp !== undefined) {
-          vp.catch((err) => console.warn('[WebRTC] remoteVideo play error:', err));
-        }
+        remoteVideoRef.current.srcObject = composite;
+        remoteVideoRef.current.play().catch((err) => console.warn('[WebRTC] remoteVideo play error:', err));
       }
-
       if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = compositeStream;
-        const ap = remoteAudioRef.current.play();
-        if (ap !== undefined) {
-          ap.catch((err) => console.warn('[WebRTC] remoteAudio play error:', err));
-        }
+        remoteAudioRef.current.srcObject = composite;
+        remoteAudioRef.current.play().catch((err) => console.warn('[WebRTC] remoteAudio play error:', err));
       }
 
       setIsPeerConnected(true);
@@ -484,40 +508,18 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       playConnectedTone();
     };
 
-    // Handle local ICE candidates
+    // Handle local ICE candidates — send via both channels
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        const candData: RTCIceCandidateInit = event.candidate.toJSON
-          ? event.candidate.toJSON()
-          : {
-              candidate: event.candidate.candidate,
-              sdpMid: event.candidate.sdpMid,
-              sdpMLineIndex: event.candidate.sdpMLineIndex
-            };
-        localCandidatesRef.current.push(candData);
-
-        // BroadcastChannel (instant same-device tab sync)
-        try {
-          bChannel.postMessage({
-            type: 'ICE_CANDIDATE',
-            candidate: candData,
-            senderId: myClientId,
-            sessionId,
-            role: userRole
-          });
-        } catch (_) {}
-
-        // Supabase Realtime (cross-device sync)
-        sendCallSignal({
-          signalType: 'ICE',
-          fromRole: userRole,
-          callerName: isDoctor ? clinician.name : memberName,
-          targetClinicianId: clinician.id,
-          sessionId,
-          senderId: myClientId,
-          payload: { candidate: candData }
-        }).catch(() => {});
-      }
+      if (!event.candidate) return;
+      const candData: RTCIceCandidateInit = event.candidate.toJSON
+        ? event.candidate.toJSON()
+        : {
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex
+          };
+      localCandidatesRef.current.push(candData);
+      sendSignal({ type: 'ICE_CANDIDATE', candidate: candData });
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -546,7 +548,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       resolveLocalTracksReady = resolve;
     });
 
-    // Acquire Media: Physical camera with instant synthetic video & audio fallback
+    // Acquire local media (camera + mic or fallback synthetic)
     const acquireMedia = async () => {
       let stream: MediaStream | null = null;
 
@@ -554,47 +556,32 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-            video: {
-              width: { ideal: 1280, max: 1920 },
-              height: { ideal: 720, max: 1080 },
-              facingMode: 'user'
-            }
+            video: { width: { ideal: 1280, max: 1920 }, height: { ideal: 720, max: 1080 }, facingMode: 'user' }
           });
         } catch (err: any) {
-          console.warn('[VitaNova Call] Physical camera unavailable (likely locked by other tab). Using visual clinical stream & audio:', err);
+          console.warn('[VitaNova Call] Physical camera unavailable. Using synthetic stream:', err);
           let audioTrack: MediaStreamTrack | null = null;
           try {
             const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             audioTrack = audioStream.getAudioTracks()[0] || null;
           } catch (_) {}
-
-          if (!audioTrack) {
-            audioTrack = createSilentAudioTrack();
-          }
-
+          if (!audioTrack) audioTrack = createSilentAudioTrack();
           const synthetic = createSyntheticVideoStream(
             isDoctor ? clinician.name : memberName,
             isDoctor ? 'Lead Telehealth Consultant' : 'Patient Video Feed',
-            isDoctor ? clinician.avatar : '/ki_ezra_avatar.jpg'
+            isDoctor ? clinician.avatar : undefined
           );
           syntheticCleanupRef.current = synthetic.cleanup;
-
-          const combinedTracks: MediaStreamTrack[] = [
-            ...synthetic.stream.getVideoTracks(),
-            audioTrack
-          ];
-          stream = new MediaStream(combinedTracks);
+          stream = new MediaStream([...synthetic.stream.getVideoTracks(), audioTrack]);
         }
       } else {
-        // Audio call
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
             video: false
           });
         } catch (_) {
-          const silentTrack = createSilentAudioTrack();
-          stream = new MediaStream([silentTrack]);
+          stream = new MediaStream([createSilentAudioTrack()]);
         }
       }
 
@@ -607,178 +594,99 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       if (stream) {
         streamRef.current = stream;
         setLocalStream(stream);
-
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
           localVideoRef.current.play().catch(() => {});
         }
-
-        // Add tracks to WebRTC peer connection
-        stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream!);
-        });
+        // CRITICAL: Add all tracks to peer connection BEFORE creating offer/answer
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream!));
       }
 
       resolveLocalTracksReady!();
       return stream;
     };
 
-    // Handle incoming SDP Offer (Doctor side)
+    // Handle incoming SDP Offer (received by Doctor)
     const handleOfferSignal = async (sdp: RTCSessionDescriptionInit) => {
       try {
         if (!sdp || !sdp.sdp) return;
-        if (lastHandledOfferSdpRef.current === sdp.sdp && pc.signalingState !== 'stable') {
-          return;
-        }
+        if (lastHandledOfferSdpRef.current === sdp.sdp && pc.signalingState !== 'stable') return;
         lastHandledOfferSdpRef.current = sdp.sdp;
 
-        // Ensure doctor's local media is acquired and added to pc BEFORE creating answer (independent promise, no circular deadlock)
+        // Wait for our local tracks to be added before creating answer
         await localTracksReadyPromise;
 
         if (pc.signalingState !== 'stable') {
-          await Promise.all([
-            pc.setLocalDescription({ type: 'rollback' }),
-            pc.setRemoteDescription(new RTCSessionDescription(sdp))
-          ]);
-        } else {
-          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+          await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
         }
-
-        await flushPendingCandidates(pc);
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await flushPendingCandidates();
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
-        bChannel.postMessage({
-          type: 'ANSWER',
-          sdp: answer,
-          senderId: myClientId,
-          sessionId,
-          senderName: clinician.name
-        });
+        // Send ANSWER back — via Broadcast (doctor -> patient, bidirectional!)
+        sendSignal({ type: 'ANSWER', sdp: answer });
 
-        await sendCallSignal({
-          signalType: 'ANSWER',
-          fromRole: 'doctor',
-          callerName: clinician.name,
-          targetClinicianId: clinician.id,
-          sessionId,
-          senderId: myClientId,
-          payload: { sdp: answer }
-        });
+        // Re-send all local ICE candidates to ensure patient has them
+        localCandidatesRef.current.forEach((cand) => sendSignal({ type: 'ICE_CANDIDATE', candidate: cand }));
 
-        retransmitAllLocalCandidates();
         setIsPeerConnected(true);
       } catch (err) {
         console.warn('[VitaNova Call] handleOfferSignal error:', err);
       }
     };
 
-    // Handle incoming SDP Answer (Patient side)
+    // Handle incoming SDP Answer (received by Patient)
     const handleAnswerSignal = async (sdp: RTCSessionDescriptionInit) => {
       try {
         if (pc.signalingState === 'have-local-offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-          await flushPendingCandidates(pc);
+          await flushPendingCandidates();
           setIsPeerConnected(true);
           stopRingbackTone();
           playConnectedTone();
-          retransmitAllLocalCandidates();
         }
       } catch (err) {
         console.warn('[VitaNova Call] handleAnswerSignal error:', err);
       }
     };
 
-    // Unified signal dispatcher
-    const processSignal = async (eventData: {
-      type: string;
-      senderId?: string;
-      sessionId?: string;
-      fromRole?: string;
-      payload?: any;
-      sdp?: any;
-      candidate?: any;
-      message?: any;
-      camOff?: boolean;
-    }) => {
+    // Unified signal processor — handles signals from EITHER party
+    const processSignal = async (data: BroadcastSignal) => {
       if (!active) return;
-      // Filter out our own signals
-      if (eventData.senderId && eventData.senderId === myClientId) return;
-      // Ensure signal belongs to our active call session
-      if (eventData.sessionId && eventData.sessionId !== sessionId) return;
+      // Ignore our own signals
+      if (data.senderId === myClientId) return;
+      // Ignore signals from a different session
+      if (data.sessionId && data.sessionId !== sessionId) return;
 
-      const type = eventData.type;
-      const sdp = eventData.sdp || eventData.payload?.sdp;
-      const candidate = eventData.candidate || eventData.payload?.candidate;
+      console.log('[WebRTC] Received signal:', data.type, 'from', data.role);
 
       try {
-        if (type === 'READY_FOR_OFFER' && userRole === 'patient') {
+        if (data.type === 'OFFER' && userRole === 'doctor' && data.sdp) {
+          await handleOfferSignal(data.sdp);
+        } else if (data.type === 'ANSWER' && userRole === 'patient' && data.sdp) {
+          await handleAnswerSignal(data.sdp);
+        } else if (data.type === 'ICE_CANDIDATE' && data.candidate) {
+          await addOrQueueCandidate(data.candidate);
+        } else if (data.type === 'READY_FOR_OFFER' && userRole === 'patient') {
+          // Doctor is ready — resend our offer or create a new one
           await localTracksReadyPromise;
           if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
-            bChannel.postMessage({
-              type: 'OFFER',
-              sdp: pc.localDescription,
-              senderId: myClientId,
-              sessionId,
-              senderName: memberName
-            });
-            sendCallSignal({
-              signalType: 'OFFER',
-              fromRole: 'patient',
-              callerName: memberName,
-              targetClinicianId: clinician.id,
-              callType,
-              sessionId,
-              senderId: myClientId,
-              payload: { sdp: pc.localDescription }
-            }).catch(() => {});
-            retransmitAllLocalCandidates();
+            sendSignal({ type: 'OFFER', sdp: pc.localDescription });
+            localCandidatesRef.current.forEach((c) => sendSignal({ type: 'ICE_CANDIDATE', candidate: c }));
           } else if (pc.signalingState === 'stable') {
             const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
             await pc.setLocalDescription(offer);
-            bChannel.postMessage({
-              type: 'OFFER',
-              sdp: offer,
-              senderId: myClientId,
-              sessionId,
-              senderName: memberName
-            });
-            sendCallSignal({
-              signalType: 'OFFER',
-              fromRole: 'patient',
-              callerName: memberName,
-              targetClinicianId: clinician.id,
-              callType,
-              sessionId,
-              senderId: myClientId,
-              payload: { sdp: offer }
-            }).catch(() => {});
-            retransmitAllLocalCandidates();
+            sendSignal({ type: 'OFFER', sdp: offer });
           }
-        } else if (type === 'OFFER' && userRole === 'doctor' && sdp) {
-          await handleOfferSignal(sdp);
-        } else if (type === 'ANSWER' && userRole === 'patient' && sdp) {
-          await handleAnswerSignal(sdp);
-        } else if (type === 'ICE' || type === 'ICE_CANDIDATE') {
-          if (candidate) {
-            await addOrQueueCandidate(candidate);
-          }
-        } else if (type === 'CAMERA_STATUS') {
-          const camStatus = eventData.camOff ?? eventData.payload?.camOff;
-          if (typeof camStatus === 'boolean') {
-            setRemoteCamOff(camStatus);
-          }
-        } else if (type === 'CALL_CHAT') {
-          const msg = eventData.message || eventData.payload?.message;
-          if (msg) {
-            setChatMessages((prev) => [...prev, msg]);
-            if (!showInCallChat) {
-              setUnreadChatCount((c) => c + 1);
-            }
-          }
-        } else if (type === 'CALL_ENDED' || type === 'HANGUP' || type === 'DECLINE') {
-          if (eventData.sessionId === sessionId && !isCallEndedRef.current) {
+        } else if (data.type === 'CAMERA_STATUS' && typeof data.camOff === 'boolean') {
+          setRemoteCamOff(data.camOff);
+        } else if (data.type === 'CALL_CHAT' && data.message) {
+          setChatMessages((prev) => [...prev, data.message as any]);
+          if (!showInCallChat) setUnreadChatCount((c) => c + 1);
+        } else if (data.type === 'HANGUP' || data.type === 'CALL_ENDED' || data.type === 'DECLINE') {
+          if (!isCallEndedRef.current) {
             isCallEndedRef.current = true;
             stopRingbackTone();
             playHangupTone();
@@ -786,115 +694,79 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           }
         }
       } catch (err) {
-        console.warn('[VitaNova Call] Signal processing exception:', err);
+        console.warn('[VitaNova Call] Signal processing error:', err);
       }
     };
 
-    // Listen on BroadcastChannel (zero-latency same-device)
+    // ── BroadcastChannel for same-device instant sync ──────────────────────────
+    const channelName = `vitanova_webrtc_${clinician.id}_${sessionId}`;
+    const bChannel = new BroadcastChannel(channelName);
+    channelRef.current = bChannel;
     bChannel.onmessage = (event) => {
-      const data = event.data;
-      if (!data) return;
-      processSignal(data);
+      if (event.data) processSignal(event.data as BroadcastSignal);
     };
 
-    // Listen on Supabase Realtime (cross-device)
-    const unsubSupabase = subscribeToCallSignals(clinician.id, (signal: CallSignalEvent) => {
-      if (signal.sessionId && signal.sessionId !== sessionId) return;
-      processSignal({
-        type: signal.signalType,
-        senderId: signal.senderId,
-        sessionId: signal.sessionId,
-        fromRole: signal.fromRole,
-        payload: signal.payload,
-        sdp: signal.payload?.sdp,
-        candidate: signal.payload?.candidate,
-        message: signal.payload?.message,
-        camOff: signal.payload?.camOff
-      });
+    // ── Join Supabase Realtime Broadcast Room (bidirectional, cross-device) ──
+    // Both parties join the room keyed by sessionId — signals flow both ways!
+    signalingRoom = joinCallSignalingRoom(sessionId, (signal) => {
+      processSignal(signal);
     });
+    signalingRoomRef.current = signalingRoom;
 
+    // ── Start Signaling ──────────────────────────────────────────────────────────
     const startSignaling = async () => {
       await acquireMedia();
       if (!active) return;
 
       if (userRole === 'patient') {
+        // Patient creates the initial offer
         try {
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: true
-          });
+          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
           await pc.setLocalDescription(offer);
-
-          bChannel.postMessage({
-            type: 'OFFER',
-            sdp: offer,
-            senderId: myClientId,
-            sessionId,
-            senderName: memberName
-          });
-
-          await sendCallSignal({
-            signalType: 'OFFER',
-            fromRole: 'patient',
-            callerName: memberName,
-            targetClinicianId: clinician.id,
-            callType,
-            sessionId,
-            senderId: myClientId,
-            payload: { sdp: offer }
-          });
-
-          retransmitAllLocalCandidates();
-        } catch (offerErr) {
-          console.warn('[VitaNova Call] createOffer error:', offerErr);
+          sendSignal({ type: 'OFFER', sdp: offer });
+          // Also send all accumulated ICE candidates
+          localCandidatesRef.current.forEach((c) => sendSignal({ type: 'ICE_CANDIDATE', candidate: c }));
+        } catch (err) {
+          console.warn('[VitaNova Call] createOffer error:', err);
         }
-      } else {
-        // Doctor announces readiness so patient can send/re-send offer
-        bChannel.postMessage({
-          type: 'READY_FOR_OFFER',
-          senderId: myClientId,
-          sessionId,
-          senderName: clinician.name
-        });
 
-        sendCallSignal({
-          signalType: 'READY_FOR_OFFER',
-          fromRole: 'doctor',
-          callerName: clinician.name,
-          targetClinicianId: clinician.id,
-          callType,
-          sessionId,
-          senderId: myClientId
-        }).catch(() => {});
-
-        // Doctor checks for any recent OFFER and ICE signals already submitted to Supabase!
-        fetchRecentCallSignals(clinician.id, ['OFFER', 'ICE', 'READY_FOR_OFFER'], sessionId, 120).then(async (signals) => {
-          if (!active || signals.length === 0) return;
-          const offer = signals.find((s) => s.signalType === 'OFFER' && s.payload?.sdp);
-          if (offer && offer.payload?.sdp && pc.signalingState === 'stable') {
-            await handleOfferSignal(offer.payload.sdp);
+        // Also check Supabase DB for any pre-existing ANSWER (in case doctor was already there)
+        fetchRecentCallSignals(clinician.id, ['ANSWER', 'ICE'], sessionId, 120).then(async (signals) => {
+          if (!active) return;
+          const answer = signals.find((s) => s.signalType === 'ANSWER' && s.payload?.sdp);
+          if (answer && pc.signalingState === 'have-local-offer') {
+            await handleAnswerSignal(answer.payload.sdp as RTCSessionDescriptionInit);
           }
-          const iceSignals = signals.filter(
-            (s) => (s.signalType === 'ICE' || s.signalType === 'ICE_CANDIDATE') && (s.payload?.candidate || (s as any).candidate)
-          );
-          for (const s of iceSignals) {
-            const cand = s.payload?.candidate || (s as any).candidate;
-            if (cand) await addOrQueueCandidate(cand);
+          for (const s of signals.filter((s) => s.signalType === 'ICE' && s.payload?.candidate)) {
+            await addOrQueueCandidate(s.payload.candidate as RTCIceCandidateInit);
+          }
+        });
+      } else {
+        // Doctor announces readiness — patient will re-send OFFER
+        sendSignal({ type: 'READY_FOR_OFFER' });
+
+        // Also check Supabase DB for any pre-existing OFFER (in case patient sent it before doctor joined)
+        fetchRecentCallSignals(clinician.id, ['OFFER', 'ICE'], sessionId, 120).then(async (signals) => {
+          if (!active) return;
+          const offer = signals.find((s) => s.signalType === 'OFFER' && s.payload?.sdp);
+          if (offer && pc.signalingState === 'stable') {
+            await handleOfferSignal(offer.payload.sdp as RTCSessionDescriptionInit);
+          }
+          for (const s of signals.filter((s) => s.signalType === 'ICE' && s.payload?.candidate)) {
+            await addOrQueueCandidate(s.payload.candidate as RTCIceCandidateInit);
           }
         });
       }
     };
 
-    startSignaling();
+    // Small delay to allow Broadcast channel subscription to establish before sending
+    setTimeout(startSignaling, 600);
 
     return () => {
       active = false;
-      unsubSupabase();
-      stopRingbackTone();
 
-      try {
-        bChannel.close();
-      } catch (_) {}
+      try { bChannel.close(); } catch (_) {}
+      signalingRoom?.leave();
 
       if (syntheticCleanupRef.current) {
         syntheticCleanupRef.current();
@@ -933,31 +805,20 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     setIsCamOff(nextCamOff);
 
     if (streamRef.current) {
-      const videoTracks = streamRef.current.getVideoTracks();
-      videoTracks.forEach((track) => {
+      streamRef.current.getVideoTracks().forEach((track) => {
         track.enabled = !nextCamOff;
       });
     }
 
-    if (channelRef.current) {
-      try {
-        channelRef.current.postMessage({
-          type: 'CAMERA_STATUS',
-          camOff: nextCamOff,
-          senderId: myClientId,
-          sessionId
-        });
-      } catch (_) {}
-    }
-    sendCallSignal({
-      signalType: 'CAMERA_STATUS',
-      fromRole: userRole,
-      callerName: isDoctor ? clinician.name : memberName,
-      targetClinicianId: clinician.id,
-      sessionId,
+    const camSignal: BroadcastSignal = {
+      type: 'CAMERA_STATUS',
+      camOff: nextCamOff,
       senderId: myClientId,
-      payload: { camOff: nextCamOff }
-    }).catch(() => {});
+      sessionId,
+      role: userRole
+    };
+    try { channelRef.current?.postMessage(camSignal); } catch (_) {}
+    signalingRoomRef.current?.send(camSignal);
   };
 
   // Flip Camera Front / Back
@@ -1042,26 +903,15 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
 
     if (timerRef.current) clearInterval(timerRef.current);
 
-    // Notify other party via BroadcastChannel
-    if (channelRef.current) {
-      try {
-        channelRef.current.postMessage({
-          type: 'HANGUP',
-          senderId: myClientId,
-          sessionId
-        });
-      } catch (_) {}
-    }
-
-    // Notify other party via Supabase
-    sendCallSignal({
-      signalType: 'HANGUP',
-      fromRole: userRole,
-      callerName: isDoctor ? clinician.name : memberName,
-      targetClinicianId: clinician.id,
+    // Notify other party via all available channels
+    const hangupSignal: BroadcastSignal = {
+      type: 'HANGUP',
+      senderId: myClientId,
       sessionId,
-      senderId: myClientId
-    }).catch(() => {});
+      role: userRole
+    };
+    try { channelRef.current?.postMessage(hangupSignal); } catch (_) {}
+    signalingRoomRef.current?.send(hangupSignal);
 
     // Close local media & peer connection
     if (syntheticCleanupRef.current) {
@@ -1099,26 +949,16 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     setChatMessages((prev) => [...prev, userMsg]);
     setChatInput('');
 
-    if (channelRef.current) {
-      try {
-        channelRef.current.postMessage({
-          type: 'CALL_CHAT',
-          message: userMsg,
-          senderId: myClientId,
-          sessionId
-        });
-      } catch (_) {}
-    }
-
-    sendCallSignal({
-      signalType: 'CALL_CHAT',
-      fromRole: userRole,
-      callerName: senderDisplayName,
-      targetClinicianId: clinician.id,
-      sessionId,
+    // Send chat via both channels so the other party receives it
+    const chatSignal: BroadcastSignal = {
+      type: 'CALL_CHAT',
+      message: userMsg,
       senderId: myClientId,
-      payload: { message: userMsg }
-    }).catch(() => {});
+      sessionId,
+      role: userRole
+    };
+    try { channelRef.current?.postMessage(chatSignal); } catch (_) {}
+    signalingRoomRef.current?.send(chatSignal);
 
     // Helpful simulated reply if peer hasn't answered
     if (!isPeerConnected || isSimulatedDoctor) {
