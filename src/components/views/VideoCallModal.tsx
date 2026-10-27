@@ -182,10 +182,13 @@ function createSyntheticVideoStream(
   // Synchronously draw the first frame so canvas track has pixels immediately
   draw();
   animFrameId = requestAnimationFrame(draw);
+  // Interval timer guarantees 25 FPS even when tab is in the background or unfocused
+  const intervalId = setInterval(draw, 40);
   const stream = (canvas as any).captureStream ? canvas.captureStream(25) : new MediaStream();
 
   const cleanup = () => {
     cancelAnimationFrame(animFrameId);
+    clearInterval(intervalId);
     stream.getTracks().forEach((trk) => trk.stop());
   };
 
@@ -258,6 +261,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const localCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const lastHandledOfferSdpRef = useRef<string | null>(null);
+  const mediaReadyPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
   const isCallEndedRef = useRef(false);
 
   // UI States
@@ -280,6 +284,13 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   const remotePartyTitle = isDoctor
     ? 'Patient (Direct Telehealth Line)'
     : `${clinician.specialty} • VitaNova Nakawa`;
+
+  const hasRemoteVideo = Boolean(
+    remoteStream &&
+    remoteStream.getVideoTracks().length > 0 &&
+    remoteStream.getVideoTracks().some((t) => t.readyState === 'live')
+  );
+  const showRemoteVideo = (isPeerConnected || hasRemoteVideo) && !remoteCamOff && !isSimulatedDoctor;
 
   const [chatMessages, setChatMessages] = useState<Array<{ sender: string; text: string; time: string }>>([
     {
@@ -530,144 +541,151 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     };
 
     // Acquire Media: Physical camera with instant synthetic video & audio fallback
-    const acquireMedia = async () => {
-      let stream: MediaStream | null = null;
+    const acquireMedia = () => {
+      const p = (async () => {
+        let stream: MediaStream | null = null;
 
-      if (callType === 'video') {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-            video: {
-              width: { ideal: 1280, max: 1920 },
-              height: { ideal: 720, max: 1080 },
-              facingMode: 'user'
-            }
-          });
-        } catch (err: any) {
-          console.warn('[VitaNova Call] Physical camera unavailable (likely locked by other tab). Using visual clinical stream & audio:', err);
-          let audioTrack: MediaStreamTrack | null = null;
+        if (callType === 'video') {
           try {
-            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            audioTrack = audioStream.getAudioTracks()[0] || null;
-          } catch (_) {}
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+              video: {
+                width: { ideal: 1280, max: 1920 },
+                height: { ideal: 720, max: 1080 },
+                facingMode: 'user'
+              }
+            });
+          } catch (err: any) {
+            console.warn('[VitaNova Call] Physical camera unavailable (likely locked by other tab). Using visual clinical stream & audio:', err);
+            let audioTrack: MediaStreamTrack | null = null;
+            try {
+              const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              audioTrack = audioStream.getAudioTracks()[0] || null;
+            } catch (_) {}
 
-          if (!audioTrack) {
-            audioTrack = createSilentAudioTrack();
+            if (!audioTrack) {
+              audioTrack = createSilentAudioTrack();
+            }
+
+            const synthetic = createSyntheticVideoStream(
+              isDoctor ? clinician.name : memberName,
+              isDoctor ? 'Lead Telehealth Consultant' : 'Patient Video Feed',
+              isDoctor ? clinician.avatar : '/ki_ezra_avatar.jpg'
+            );
+            syntheticCleanupRef.current = synthetic.cleanup;
+
+            const combinedTracks: MediaStreamTrack[] = [
+              ...synthetic.stream.getVideoTracks(),
+              audioTrack
+            ];
+            stream = new MediaStream(combinedTracks);
+          }
+        } else {
+          // Audio call
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+              video: false
+            });
+          } catch (_) {
+            const silentTrack = createSilentAudioTrack();
+            stream = new MediaStream([silentTrack]);
+          }
+        }
+
+        if (!active) {
+          if (stream) stream.getTracks().forEach((t) => t.stop());
+          return null;
+        }
+
+        if (stream) {
+          streamRef.current = stream;
+          setLocalStream(stream);
+
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+            localVideoRef.current.play().catch(() => {});
           }
 
-          const synthetic = createSyntheticVideoStream(
-            isDoctor ? clinician.name : memberName,
-            isDoctor ? 'Lead Telehealth Consultant' : 'Patient Video Feed',
-            isDoctor ? clinician.avatar : '/ki_ezra_avatar.jpg'
-          );
-          syntheticCleanupRef.current = synthetic.cleanup;
-
-          const combinedTracks: MediaStreamTrack[] = [
-            ...synthetic.stream.getVideoTracks(),
-            audioTrack
-          ];
-          stream = new MediaStream(combinedTracks);
-        }
-      } else {
-        // Audio call
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-            video: false
+          // Add tracks to WebRTC peer connection
+          stream.getTracks().forEach((track) => {
+            pc.addTrack(track, stream!);
           });
-        } catch (_) {
-          const silentTrack = createSilentAudioTrack();
-          stream = new MediaStream([silentTrack]);
-        }
-      }
-
-      if (!active) {
-        if (stream) stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-
-      if (stream) {
-        streamRef.current = stream;
-        setLocalStream(stream);
-
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-          localVideoRef.current.play().catch(() => {});
         }
 
-        // Add tracks to WebRTC peer connection
-        stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream!);
-        });
-      }
+        // If patient, generate the initial SDP Offer AFTER tracks are added
+        if (userRole === 'patient') {
+          try {
+            const offer = await pc.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true
+            });
+            await pc.setLocalDescription(offer);
 
-      // If patient, generate the initial SDP Offer
-      if (userRole === 'patient') {
-        try {
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: true
-          });
-          await pc.setLocalDescription(offer);
+            bChannel.postMessage({
+              type: 'OFFER',
+              sdp: offer,
+              senderId: myClientId,
+              sessionId,
+              senderName: memberName
+            });
 
+            await sendCallSignal({
+              signalType: 'OFFER',
+              fromRole: 'patient',
+              callerName: memberName,
+              targetClinicianId: clinician.id,
+              callType,
+              sessionId,
+              senderId: myClientId,
+              payload: { sdp: offer }
+            });
+
+            retransmitAllLocalCandidates();
+          } catch (offerErr) {
+            console.warn('[VitaNova Call] createOffer error:', offerErr);
+          }
+        } else {
+          // Doctor announces readiness so patient can send/re-send offer
           bChannel.postMessage({
-            type: 'OFFER',
-            sdp: offer,
+            type: 'READY_FOR_OFFER',
             senderId: myClientId,
             sessionId,
-            senderName: memberName
+            senderName: clinician.name
           });
 
-          await sendCallSignal({
-            signalType: 'OFFER',
-            fromRole: 'patient',
-            callerName: memberName,
+          sendCallSignal({
+            signalType: 'READY_FOR_OFFER',
+            fromRole: 'doctor',
+            callerName: clinician.name,
             targetClinicianId: clinician.id,
             callType,
             sessionId,
-            senderId: myClientId,
-            payload: { sdp: offer }
+            senderId: myClientId
+          }).catch(() => {});
+
+          // Doctor checks for any recent OFFER and ICE signals already submitted to Supabase!
+          fetchRecentCallSignals(clinician.id, ['OFFER', 'ICE', 'READY_FOR_OFFER'], sessionId, 120).then(async (signals) => {
+            if (!active || signals.length === 0) return;
+            const offer = signals.find((s) => s.signalType === 'OFFER' && s.payload?.sdp);
+            if (offer && offer.payload?.sdp && pc.signalingState === 'stable') {
+              await handleOfferSignal(offer.payload.sdp);
+            }
+            const iceSignals = signals.filter(
+              (s) => (s.signalType === 'ICE' || s.signalType === 'ICE_CANDIDATE') && (s.payload?.candidate || (s as any).candidate)
+            );
+            for (const s of iceSignals) {
+              const cand = s.payload?.candidate || (s as any).candidate;
+              if (cand) await addOrQueueCandidate(cand);
+            }
           });
-
-          retransmitAllLocalCandidates();
-        } catch (offerErr) {
-          console.warn('[VitaNova Call] createOffer error:', offerErr);
         }
-      } else {
-        // Doctor announces readiness so patient can send/re-send offer
-        bChannel.postMessage({
-          type: 'READY_FOR_OFFER',
-          senderId: myClientId,
-          sessionId,
-          senderName: clinician.name
-        });
 
-        sendCallSignal({
-          signalType: 'READY_FOR_OFFER',
-          fromRole: 'doctor',
-          callerName: clinician.name,
-          targetClinicianId: clinician.id,
-          callType,
-          sessionId,
-          senderId: myClientId
-        }).catch(() => {});
+        return stream;
+      })();
 
-        // Doctor checks for any recent OFFER and ICE signals already submitted to Supabase!
-        fetchRecentCallSignals(clinician.id, ['OFFER', 'ICE', 'READY_FOR_OFFER'], sessionId, 120).then(async (signals) => {
-          if (!active || signals.length === 0) return;
-          const offer = signals.find((s) => s.signalType === 'OFFER' && s.payload?.sdp);
-          if (offer && offer.payload?.sdp && pc.signalingState === 'stable') {
-            await handleOfferSignal(offer.payload.sdp);
-          }
-          const iceSignals = signals.filter(
-            (s) => (s.signalType === 'ICE' || s.signalType === 'ICE_CANDIDATE') && (s.payload?.candidate || (s as any).candidate)
-          );
-          for (const s of iceSignals) {
-            const cand = s.payload?.candidate || (s as any).candidate;
-            if (cand) await addOrQueueCandidate(cand);
-          }
-        });
-      }
+      mediaReadyPromiseRef.current = p;
+      return p;
     };
 
     // Handle incoming SDP Offer (Doctor side)
@@ -678,6 +696,11 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           return;
         }
         lastHandledOfferSdpRef.current = sdp.sdp;
+
+        // Ensure doctor's local media is acquired and added to pc BEFORE creating answer
+        if (mediaReadyPromiseRef.current) {
+          await mediaReadyPromiseRef.current;
+        }
 
         if (pc.signalingState !== 'stable') {
           await Promise.all([
@@ -758,6 +781,9 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
 
       try {
         if (type === 'READY_FOR_OFFER' && userRole === 'patient') {
+          if (mediaReadyPromiseRef.current) {
+            await mediaReadyPromiseRef.current;
+          }
           if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
             bChannel.postMessage({
               type: 'OFFER',
@@ -1300,11 +1326,17 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
-                onLoadedMetadata={(e) => (e.target as HTMLVideoElement).play().catch(() => {})}
+                muted
+                onLoadedMetadata={(e) => {
+                  const el = e.target as HTMLVideoElement;
+                  el.play().catch(() => {});
+                }}
+                onCanPlay={(e) => {
+                  const el = e.target as HTMLVideoElement;
+                  el.play().catch(() => {});
+                }}
                 className={`w-full h-full object-cover transition-opacity duration-300 ${
-                  isPeerConnected && !remoteCamOff && !isSimulatedDoctor
-                    ? 'opacity-100 z-10'
-                    : 'opacity-0 pointer-events-none'
+                  showRemoteVideo ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none'
                 }`}
               />
 
