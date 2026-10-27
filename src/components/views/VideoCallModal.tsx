@@ -43,6 +43,7 @@ interface VideoCallModalProps {
   callType: 'video' | 'audio';
   userRole?: 'doctor' | 'patient';
   memberName: string;
+  callerName?: string;
   sessionId?: string;
   onEnd: () => void;
 }
@@ -52,6 +53,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   callType,
   userRole = 'patient',
   memberName,
+  callerName,
   sessionId: propSessionId,
   onEnd
 }) => {
@@ -88,17 +90,17 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   const [pipPosition, setPipPosition] = useState<'top-right' | 'bottom-right' | 'top-left'>('top-right');
 
   const isDoctor = userRole === 'doctor';
-  const remotePartyName = isDoctor ? memberName : clinician.name;
+  const remotePartyName = isDoctor ? (callerName || 'Patient (Sarah Namubiru)') : clinician.name;
   const remotePartyTitle = isDoctor
-    ? 'Patient (Direct Line)'
+    ? 'Patient (Direct Telehealth Line)'
     : `${clinician.specialty} • VitaNova Nakawa`;
 
   const [chatMessages, setChatMessages] = useState<Array<{ sender: string; text: string; time: string }>>([
     {
-      sender: isDoctor ? memberName : clinician.name,
+      sender: isDoctor ? (callerName || 'Patient') : clinician.name,
       text: isDoctor
-        ? `Hello Doctor, I am connected and ready for our consultation.`
-        : `Hello ${memberName}, I have opened your VitaNova medical records and vitals. I can hear and see you clearly.`,
+        ? `Hello Dr. Israel, I am connected and ready for our consultation.`
+        : `Hello ${callerName || memberName}, I have opened your VitaNova medical records and vitals. I can hear and see you clearly.`,
       time: 'Just now'
     }
   ]);
@@ -1137,7 +1139,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
                 {/* PiP Overlay Info */}
                 <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between">
                   <span className="text-[10px] font-bold bg-slate-950/80 px-2 py-0.5 rounded text-white backdrop-blur-sm">
-                    You ({isDoctor ? 'Doctor' : 'Patient'})
+                    You ({isDoctor ? 'Dr. Israel Kisakye' : memberName})
                   </span>
                   {isMuted && (
                     <span className="p-1 rounded bg-rose-500 text-white shadow">

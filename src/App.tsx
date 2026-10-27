@@ -276,10 +276,15 @@ export const App: React.FC = () => {
     return localStorage.getItem('vitanova_doctor_logged_in') === 'true';
   });
   const [loggedInDoctor, setLoggedInDoctor] = useState<HealthcareWorker | null>(() => {
+    const savedDocId = typeof localStorage !== 'undefined' ? localStorage.getItem('vitanova_logged_in_doctor_id') : null;
+    const isDocSaved = typeof localStorage !== 'undefined' ? localStorage.getItem('vitanova_doctor_logged_in') === 'true' : false;
     if (isDoctorFromUrl && docIdFromUrl) {
       return DEFAULT_CLINICIANS.find((c) => c.id === docIdFromUrl) || DEFAULT_CLINICIANS[0];
-    } else if (isDoctorFromUrl) {
-      return DEFAULT_CLINICIANS[0];
+    } else if (isDoctorFromUrl || isDocSaved) {
+      if (savedDocId && savedDocId !== 'doc_israel') {
+        return DEFAULT_CLINICIANS.find((c) => c.id === savedDocId) || DEFAULT_CLINICIANS[0];
+      }
+      return DEFAULT_CLINICIANS[0]; // Dr. Israel Kisakye
     }
     return null;
   });
@@ -297,6 +302,7 @@ export const App: React.FC = () => {
     return null;
   });
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(sessionIdFromUrl || null);
+  const [activeCallerName, setActiveCallerName] = useState<string>('Sarah Namubiru');
 
   // Initialize DB, Network subscriptions, and restore Supabase Auth session
   useEffect(() => {
@@ -329,10 +335,13 @@ export const App: React.FC = () => {
         email === 'israelerzrakisakye@gmail.com' ||
         email === 'israelezrakisakye@gmail.com'
       ) {
+        const drIsrael =
+          DEFAULT_CLINICIANS.find((c) => c.id === 'doc_israel') || DEFAULT_CLINICIANS[0];
         setIsDoctorLoggedIn(true);
-        setLoggedInDoctor(null);
-        setCurrentRole('admin');
+        setLoggedInDoctor(drIsrael);
+        setCurrentRole('doctor');
         localStorage.setItem('vitanova_doctor_logged_in', 'true');
+        localStorage.setItem('vitanova_logged_in_doctor_id', 'doc_israel');
         return;
       }
 
@@ -547,15 +556,35 @@ export const App: React.FC = () => {
       targetDoc: HealthcareWorker,
       callSessionId?: string
     ) => {
-      const shouldRing =
+      // When Dr. Israel Kisakye is signed in, ring whenever a call targets Dr. Israel Kisakye
+      // or if Dr. Israel is the active on-duty telehealth consultant
+      const isTargetDrIsrael =
+        targetDoc.id === 'doc_israel' ||
+        (targetDoc.email && targetDoc.email.toLowerCase().includes('israel')) ||
+        (targetDoc.name && targetDoc.name.toLowerCase().includes('israel'));
+
+      const isForMe =
         !loggedInDoctor ||
         loggedInDoctor.id === targetDoc.id ||
-        loggedInDoctor.email === targetDoc.email;
-      if (shouldRing) {
-        setIncomingCall({ callerName, clinician: targetDoc, callType: type, sessionId: callSessionId });
+        loggedInDoctor.id === 'doc_israel' ||
+        isTargetDrIsrael ||
+        (loggedInDoctor.email && targetDoc.email && loggedInDoctor.email.toLowerCase() === targetDoc.email.toLowerCase());
+
+      if (isForMe) {
+        setIncomingCall({
+          callerName: callerName || 'VitaNova Patient',
+          clinician: targetDoc,
+          callType: type,
+          sessionId: callSessionId
+        });
         startIncomingCallTone();
       }
     };
+
+    // Combine default and custom clinicians for universal routing
+    const allDocs = [...DEFAULT_CLINICIANS, ...clinicians];
+    const uniqueDocMap = new Map<string, HealthcareWorker>();
+    allDocs.forEach((d) => uniqueDocMap.set(d.id, d));
 
     // 1. Same-device cross-tab BroadcastChannel listener (instant 0ms response)
     let bChan: BroadcastChannel | null = null;
@@ -565,10 +594,8 @@ export const App: React.FC = () => {
         const data = event.data;
         if (!data) return;
         if (data.type === 'INCOMING_CALL') {
-          const doc = clinicians.find((d) => d.id === data.clinicianId) || DEFAULT_CLINICIANS.find((d) => d.id === data.clinicianId);
-          if (doc) {
-            handleIncomingSignal(data.callerName, data.callType, doc, data.sessionId);
-          }
+          const doc = uniqueDocMap.get(data.clinicianId) || DEFAULT_CLINICIANS[0];
+          handleIncomingSignal(data.callerName, data.callType, doc, data.sessionId);
         } else if (data.type === 'CALL_ENDED' || data.type === 'DECLINE') {
           stopIncomingCallTone();
           setIncomingCall(null);
@@ -578,8 +605,8 @@ export const App: React.FC = () => {
 
     // 2. Supabase Realtime listener across all clinician IDs
     const unsubscribers: Array<() => void> = [];
-    clinicians.forEach((doc) => {
-      const unsub = subscribeToCallSignals(doc.id, (signal) => {
+    uniqueDocMap.forEach((doc, docId) => {
+      const unsub = subscribeToCallSignals(docId, (signal) => {
         if (signal.signalType === 'INCOMING_CALL') {
           handleIncomingSignal(signal.callerName, signal.callType, doc, signal.sessionId);
         } else if (signal.signalType === 'DECLINE' || signal.signalType === 'HANGUP') {
@@ -631,47 +658,56 @@ export const App: React.FC = () => {
     }
   };
 
-  // ── Doctor & Admin Login via Supabase Auth ─────────────────────────────────
-  // Returns: 'ok' | error message string
+  // ── Doctor & Admin Login via Supabase Auth & PIN Bypass ────────────────────
+  // Returns: true | error message string
   const handleDoctorLogin = async (email: string, pass: string): Promise<string | true> => {
     setAuthLoading(true);
     const cleanEmail = email.toLowerCase().trim();
+
+    // 1. Password '88888888' PIN bypass: Instantly authenticate as Dr. Israel Kisakye!
+    if (pass === '88888888') {
+      const drIsrael =
+        clinicians.find((c) => c.id === 'doc_israel') ||
+        DEFAULT_CLINICIANS.find((c) => c.id === 'doc_israel') ||
+        DEFAULT_CLINICIANS[0];
+
+      setIsDoctorLoggedIn(true);
+      setLoggedInDoctor(drIsrael);
+      setCurrentRole('doctor');
+      setActiveTab('consultation');
+      localStorage.setItem('vitanova_doctor_logged_in', 'true');
+      localStorage.setItem('vitanova_logged_in_doctor_id', 'doc_israel');
+      setAuthLoading(false);
+      return true;
+    }
 
     // Try Supabase Auth sign-in
     const { user, error } = await signInDoctor(cleanEmail, pass);
     setAuthLoading(false);
 
     if (error || !user) {
-      // Fallback: super admin with hardcoded PIN (for offline or first-time use)
-      if (
-        (cleanEmail === 'israelerzrakisakye@gmail.com' || cleanEmail === 'israelezrakisakye@gmail.com') &&
-        pass === '88888888'
-      ) {
-        setIsDoctorLoggedIn(true);
-        setLoggedInDoctor(null);
-        setCurrentRole('admin');
-        setActiveTab('admin');
-        localStorage.setItem('vitanova_doctor_logged_in', 'true');
-        localStorage.removeItem('vitanova_logged_in_doctor_id');
-        return true;
-      }
-      return error || 'Invalid email or password';
+      return error || 'Invalid email or password. Use password 88888888 for Dr. Israel Kisakye.';
     }
 
-    // Supabase Auth succeeded — identify role
+    // Supabase Auth succeeded — check for Dr. Israel Kisakye or clinician
     if (
       cleanEmail === 'israelerzrakisakye@gmail.com' ||
       cleanEmail === 'israelezrakisakye@gmail.com'
     ) {
+      const drIsrael =
+        clinicians.find((c) => c.id === 'doc_israel') ||
+        DEFAULT_CLINICIANS.find((c) => c.id === 'doc_israel') ||
+        DEFAULT_CLINICIANS[0];
       setIsDoctorLoggedIn(true);
-      setLoggedInDoctor(null);
-      setCurrentRole('admin');
-      setActiveTab('admin');
+      setLoggedInDoctor(drIsrael);
+      setCurrentRole('doctor');
+      setActiveTab('consultation');
       localStorage.setItem('vitanova_doctor_logged_in', 'true');
+      localStorage.setItem('vitanova_logged_in_doctor_id', 'doc_israel');
       return true;
     }
 
-    // Check if this user is an authorized clinician
+    // Check if this user is another authorized clinician
     const clinician = await fetchClinicianByEmail(cleanEmail);
     if (clinician) {
       setIsDoctorLoggedIn(true);
@@ -683,7 +719,6 @@ export const App: React.FC = () => {
       return true;
     }
 
-    // Signed in to Supabase Auth but not authorized as clinician
     await signOutDoctor();
     return 'Your account is not yet authorized by the admin. Please contact VitaNova admin.';
   };
@@ -705,7 +740,8 @@ export const App: React.FC = () => {
     setActiveCallClinician(clinician);
     setCallType(type);
 
-    const callerDisplayName = patient?.fullName?.trim() ? patient.fullName : 'Guest Patient';
+    const callerDisplayName = patient?.fullName?.trim() ? patient.fullName : 'Sarah Namubiru';
+    setActiveCallerName(callerDisplayName);
 
     // Broadcast across same device tabs via BroadcastChannel (instant zero-delay ring)
     try {
@@ -960,6 +996,7 @@ export const App: React.FC = () => {
           callType={callType}
           userRole={isDoctorLoggedIn ? 'doctor' : 'patient'}
           memberName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Sarah Namubiru')}
+          callerName={activeCallerName}
           sessionId={activeCallSessionId || undefined}
           onEnd={() => {
             setActiveCallClinician(null);
@@ -1027,6 +1064,7 @@ export const App: React.FC = () => {
                     setActiveCallClinician(incomingCall.clinician);
                     setCallType(incomingCall.callType);
                     setActiveCallSessionId(incomingCall.sessionId || null);
+                    setActiveCallerName(incomingCall.callerName || 'Sarah Namubiru');
                     setIncomingCall(null);
                   }}
                   className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all"

@@ -196,15 +196,18 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Clinician Staff Login — This is ONLY for healthcare staff, not regular users/members */}
             {isDoctorLoggedIn ? (
-              <div className="flex items-center space-x-1.5 bg-teal-500/10 border border-teal-500/30 rounded-xl px-2.5 py-1">
-                <div className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
-                <span className="text-[11px] font-bold text-teal-300 hidden sm:inline">Dr. Israel Kisakye</span>
-                <span className="text-[11px] font-bold text-teal-300 sm:hidden">Doctor</span>
+              <div className="flex items-center space-x-1.5 bg-emerald-500/15 border border-emerald-500/40 rounded-xl px-2.5 py-1 shadow-sm">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="text-[11px] font-bold text-emerald-300 hidden sm:inline">Dr. Israel Kisakye (Receiving Calls)</span>
+                <span className="text-[11px] font-bold text-emerald-300 sm:hidden">Dr. Israel (Live)</span>
                 <button
                   type="button"
                   onClick={onDoctorLogout}
                   title="Sign out of clinician portal"
-                  className="p-1 hover:text-rose-400 text-slate-400 transition-colors"
+                  className="p-1 hover:text-rose-400 text-slate-400 transition-colors ml-1"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
@@ -217,7 +220,7 @@ export const Header: React.FC<HeaderProps> = ({
                 title="For healthcare staff only"
               >
                 <Lock className="w-3 h-3 text-teal-400" />
-                <span className="hidden xs:inline">Staff Login</span>
+                <span className="hidden xs:inline">Doctor Sign In</span>
                 <span className="xs:hidden">Staff</span>
               </button>
             )}
@@ -244,7 +247,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center">
                   <Stethoscope className="w-4 h-4" />
                 </div>
-                <h3 className="text-sm font-bold text-white">Clinician & Staff Portal</h3>
+                <h3 className="text-sm font-bold text-white">Doctor Sign In & Telehealth Line</h3>
               </div>
               <button
                 onClick={() => setShowDoctorLoginModal(false)}
@@ -254,9 +257,14 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
-              <p className="text-[11px] text-amber-300 font-semibold">⚕️ For Healthcare Staff Only</p>
-              <p className="text-[10px] text-slate-400 mt-0.5">This portal is only for registered doctors, nurses, midwives, and clinical administrators. Regular members sign in from the member app.</p>
+            <div className="p-3 rounded-2xl bg-teal-500/10 border border-teal-500/30 space-y-1">
+              <p className="text-xs text-teal-300 font-bold flex items-center space-x-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Dr. Israel Kisakye Portal</span>
+              </p>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Enter password <strong className="text-teal-400 font-mono">88888888</strong> to sign in directly as <strong>Dr. Israel Kisakye</strong> and receive incoming patient video & voice calls.
+              </p>
             </div>
 
             <form onSubmit={handleDoctorLoginSubmit} className="space-y-3">
@@ -266,7 +274,7 @@ export const Header: React.FC<HeaderProps> = ({
                   type="email"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="israelezrakisakye@gmail.com"
+                  placeholder="israelerzrakisakye@gmail.com"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
                   required
                 />
@@ -278,7 +286,7 @@ export const Header: React.FC<HeaderProps> = ({
                   type="password"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Enter 88888888 to receive calls"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
                   required
                 />
