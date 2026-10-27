@@ -56,380 +56,65 @@ export function getDeviceId(): string {
   return deviceId;
 }
 
-// Seed realistic initial clinical data for Uganda offline-first experience
+// Purge demo data from IndexedDB so real clinic data can be entered
+export async function purgeAllDemoData() {
+  const purgedKey = 'vitanova_demo_data_purged_v3';
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(purgedKey) === 'true') {
+    return;
+  }
+
+  try {
+    // Delete legacy demo patient Sarah Namubiru
+    await db.patients.delete('pat_sarah_001');
+    await db.vitals.where('patientId').equals('pat_sarah_001').delete();
+    await db.medicalRecords.where('patientId').equals('pat_sarah_001').delete();
+    await db.carePlans.where('patientId').equals('pat_sarah_001').delete();
+    await db.homeVisits.where('patientId').equals('pat_sarah_001').delete();
+
+    // Clean legacy IDs
+    await db.vitals.bulkDelete(['vit_001', 'vit_002', 'vit_003', 'vit_004']);
+    await db.medicalRecords.bulkDelete([
+      'emr_001', 'emr_002', 'emr_003', 'emr_004', 'emr_005', 'emr_006', 'emr_007', 'emr_008', 'emr_009'
+    ]);
+    await db.carePlans.delete('cp_htn_001');
+    await db.homeVisits.bulkDelete(['hcr_001', 'hcr_002']);
+    await db.familyMembers.bulkDelete(['fam_001', 'fam_002']);
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(purgedKey, 'true');
+    }
+    console.log('[VitaNova DB] Demo data purged. Ready for custom clinic data.');
+  } catch (err) {
+    console.warn('[VitaNova DB] Error purging demo data:', err);
+  }
+}
+
+// User-triggered complete clinic data wipe
+export async function clearAllClinicData() {
+  try {
+    await db.patients.clear();
+    await db.vitals.clear();
+    await db.medicalRecords.clear();
+    await db.carePlans.clear();
+    await db.homeVisits.clear();
+    await db.familyMembers.clear();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('vitanova_current_patient_id');
+      localStorage.removeItem('vitanova_patient_logged_in');
+      localStorage.removeItem('vitanova_patient_user');
+    }
+    console.log('[VitaNova DB] All clinic data cleared.');
+  } catch (err) {
+    console.warn('[VitaNova DB] Error clearing clinic data:', err);
+  }
+}
+
+// Seed health education library only (no fake patients or records)
 export async function seedInitialDataIfEmpty() {
-  const patientCount = await db.patients.count();
-  if (patientCount > 0) return;
+  await purgeAllDemoData();
 
-  const deviceId = getDeviceId();
-  const now = new Date();
-
-  // 1. Primary Demo Patient: Sarah Namubiru (Kampala, Uganda)
-  const initialPatient: PatientProfile = {
-    id: 'pat_sarah_001',
-    fullName: 'Sarah Namubiru',
-    dateOfBirth: '1992-04-18',
-    sex: 'Female',
-    phone: '+256 772 458 912',
-    email: 'sarah.namubiru@health.ug',
-    location: 'Nakawa Division, Kampala, Uganda',
-    emergencyContact: {
-      name: 'Christine Namubiru',
-      relationship: 'Mother',
-      phone: '+256 701 893 214'
-    },
-    bloodGroup: 'O+',
-    allergies: ['Penicillin G', 'Sulfa Antibiotics'],
-    medicalConditions: ['Stage 1 Essential Hypertension', 'Mild Exercise-induced Bronchospasm'],
-    currentMedications: ['Amlodipine 5mg Daily', 'Salbutamol Inhaler PRN'],
-    profileImage: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80',
-    consentGiven: true,
-    membershipPlanId: 'plan_family_01',
-    createdAt: new Date(Date.now() - 60 * 86400000).toISOString(),
-    updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
-    syncStatus: 'synced'
-  };
-
-  await db.patients.add(initialPatient);
-
-  // 2. Realistic Vitals Timeline (Showing BP, Glucose, HR trends)
-  const sampleVitals: VitalRecord[] = [
-    {
-      id: 'vit_001',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 30 * 86400000).toISOString(),
-      systolicBP: 142,
-      diastolicBP: 92,
-      heartRate: 78,
-      bloodGlucose: 5.6,
-      glucoseType: 'fasting',
-      temperature: 36.6,
-      weight: 68.5,
-      respiratoryRate: 16,
-      spO2: 98,
-      notes: 'Initial evaluation at VitaNova Nakawa Clinic. Mild cephalalgia.',
-      recordedBy: 'Dr. Ronald Mukasa',
-      recordedByRole: 'doctor',
-      deviceId: 'clinic_kpl_terminal_01',
-      syncStatus: 'synced'
-    },
-    {
-      id: 'vit_002',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 14 * 86400000).toISOString(),
-      systolicBP: 136,
-      diastolicBP: 88,
-      heartRate: 74,
-      bloodGlucose: 5.3,
-      glucoseType: 'fasting',
-      temperature: 36.7,
-      weight: 68.0,
-      respiratoryRate: 15,
-      spO2: 99,
-      notes: 'Follow-up home visit. Medication adherence confirmed.',
-      recordedBy: 'Sister Florence Nabatanzi',
-      recordedByRole: 'nurse',
-      deviceId: 'nurse_tablet_ug_04',
-      syncStatus: 'synced'
-    },
-    {
-      id: 'vit_003',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 3 * 86400000).toISOString(),
-      systolicBP: 130,
-      diastolicBP: 84,
-      heartRate: 72,
-      bloodGlucose: 5.1,
-      glucoseType: 'random',
-      temperature: 36.5,
-      weight: 67.8,
-      respiratoryRate: 16,
-      spO2: 99,
-      notes: 'Self-monitoring at home using Omron cuff. Feeling energized.',
-      recordedBy: 'Sarah Namubiru',
-      recordedByRole: 'patient',
-      deviceId,
-      syncStatus: 'synced'
-    },
-    {
-      id: 'vit_004',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 8 * 3600000).toISOString(),
-      systolicBP: 128,
-      diastolicBP: 82,
-      heartRate: 70,
-      bloodGlucose: 5.2,
-      glucoseType: 'fasting',
-      temperature: 36.6,
-      weight: 67.5,
-      respiratoryRate: 15,
-      spO2: 99,
-      notes: 'Morning reading before breakfast. Optimal target achieved.',
-      recordedBy: 'Sarah Namubiru',
-      recordedByRole: 'patient',
-      deviceId,
-      syncStatus: 'synced'
-    }
-  ];
-
-  await db.vitals.bulkAdd(sampleVitals);
-
-  // 3. Electronic Medical Records (EMR Timeline)
-  const sampleRecords: MedicalRecordEntry[] = [
-    {
-      id: 'emr_001',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 30 * 86400000).toISOString(),
-      category: 'consultation',
-      title: 'Comprehensive Cardiovascular Assessment',
-      description: 'Patient presented for routine cardiovascular evaluation and intermittent tension headache. Resting BP noted at 142/92 mmHg. Initiated on Amlodipine 5mg OD with DASH diet sodium reduction counseling. 2-week follow-up planned.',
-      doctorName: 'Dr. Ronald Mukasa',
-      doctorRole: 'Consultant Cardiologist',
-      doctorAvatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Main Clinic, Nakawa Kampala',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 30 * 86400000).toISOString(),
-        author: 'Dr. Ronald Mukasa (Reg #UMDPC/4192)',
-        device: 'terminal-nakawa-01',
-        version: 1
-      }
-    },
-    {
-      id: 'emr_002',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 25 * 86400000).toISOString(),
-      category: 'lab',
-      title: 'Lipid Profile & Renal Function Panel',
-      description: 'Serum Creatinine: 72 µmol/L (Ref: 45-84 - Normal) • eGFR: >90 mL/min/1.73m² (Normal) • Total Cholesterol: 4.8 mmol/L (Desirable <5.2) • Fasting Blood Glucose: 5.4 mmol/L (Normal) • Serum Potassium: 4.1 mmol/L. Electrolytes within normal physiological limits.',
-      doctorName: 'Dr. Peter Kigozi',
-      doctorRole: 'Clinical Pathologist',
-      doctorAvatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Central Pathology Laboratory',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 25 * 86400000).toISOString(),
-        author: 'Dr. Peter Kigozi (Lab Dir #KLA/771)',
-        device: 'lab-sys-09',
-        version: 1
-      }
-    },
-    {
-      id: 'emr_003',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 14 * 86400000).toISOString(),
-      category: 'consultation',
-      title: 'Community Nursing Home Visit & Education',
-      description: 'Conducted home clinical assessment in Nakawa. Verified medication storage and adherence. Demonstrated self-monitoring technique with digital sphygmomanometer. Dietary potassium and sodium guidelines reinforced.',
-      doctorName: 'Sister Florence Nabatanzi',
-      doctorRole: 'Senior Community Health Nurse',
-      doctorAvatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Mobile Community Outreach',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 14 * 86400000).toISOString(),
-        author: 'Sister Florence Nabatanzi (Nurse Reg #NCU/102)',
-        device: 'nurse_tablet_ug_04',
-        version: 1
-      }
-    },
-    {
-      id: 'emr_004',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 10 * 86400000).toISOString(),
-      category: 'medication',
-      title: 'Antihypertensive & Inhaler Regimen Dispensed',
-      description: 'Prescription Dispensed:\n1. Amlodipine Besylate 5mg: 30 tablets (1 tab once daily in morning with food).\n2. Salbutamol Inhaler 100mcg: 1 canister (2 puffs PRN 15 minutes before aerobic exercise or on onset of chest tightness).\nVerified zero drug interactions with patient allergy profile.',
-      doctorName: 'Pharm. Grace Atuhaire',
-      doctorRole: 'Lead Clinical Pharmacist',
-      doctorAvatar: 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Central Pharmacy, Nakawa',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
-        author: 'Pharm. Grace Atuhaire (PhS Reg #UG/339)',
-        device: 'rx-dispense-term-02',
-        version: 1
-      }
-    },
-    {
-      id: 'emr_005',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 7 * 86400000).toISOString(),
-      category: 'lab',
-      title: 'HbA1c Glycated Hemoglobin & Metabolic Profile',
-      description: 'HbA1c: 5.4% (Optimal <5.7% - Non-diabetic) • Fasting Plasma Glucose: 5.1 mmol/L (Ref: 3.9 - 5.6 mmol/L) • Urine Albumin/Creatinine Ratio (ACR): Normal <3.0 mg/mmol. Demonstrates excellent glycemic stability and zero microvascular stress.',
-      doctorName: 'Dr. Peter Kigozi',
-      doctorRole: 'Clinical Pathologist',
-      doctorAvatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Central Pathology Laboratory',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
-        author: 'Dr. Peter Kigozi',
-        device: 'lab-sys-09',
-        version: 1
-      }
-    },
-    {
-      id: 'emr_006',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 5 * 86400000).toISOString(),
-      category: 'condition',
-      title: 'Essential Stage 1 Hypertension Diagnosis & Baseline ECG',
-      description: 'ICD-10: I10 Essential Hypertension. Standard 12-lead ECG completed: Normal sinus rhythm at 72 bpm, normal axis, no ST-T segment elevation or left ventricular strain. Condition classified as mild Stage 1, well-responsive to lifestyle and Amlodipine 5mg.',
-      doctorName: 'Dr. Ronald Mukasa',
-      doctorRole: 'Consultant Cardiologist',
-      doctorAvatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Main Clinic, Nakawa Kampala',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-        author: 'Dr. Ronald Mukasa (Reg #UMDPC/4192)',
-        device: 'terminal-nakawa-01',
-        version: 1
-      }
-    },
-    {
-      id: 'emr_007',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 3 * 86400000).toISOString(),
-      category: 'immunization',
-      title: 'Adult Tetanus Toxoid (TT) & COVID-19 Booster',
-      description: 'Administered 0.5 mL Tetanus Toxoid Vaccine (Batch #TT-UG-991, Expiry: 10/2028) IM in left deltoid. Administered Pfizer-BioNTech Bivalent Booster 0.3 mL IM in right deltoid. Patient monitored for 20 minutes with zero hypersensitivity or anaphylaxis.',
-      doctorName: 'Sister Florence Nabatanzi',
-      doctorRole: 'Senior Community Health Nurse',
-      doctorAvatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Immunization Unit',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-        author: 'Sister Florence Nabatanzi',
-        device: 'nurse_tablet_ug_04',
-        version: 1
-      }
-    },
-    {
-      id: 'emr_008',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 1 * 86400000).toISOString(),
-      category: 'lab',
-      title: 'Complete Blood Count (CBC) & Malaria Parasitology',
-      description: 'Hemoglobin: 13.4 g/dL (Normal female range: 12.0 - 15.5 g/dL) • Total White Blood Count: 6.1 × 10⁹/L (Normal) • Platelet Count: 254 × 10⁹/L • Malaria Rapid Diagnostic Test (RDT): NEGATIVE • Giemsa-stained thin blood film: No Plasmodium parasites seen.',
-      doctorName: 'Dr. Peter Kigozi',
-      doctorRole: 'Clinical Pathologist',
-      doctorAvatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Central Pathology Laboratory',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-        author: 'Dr. Peter Kigozi',
-        device: 'lab-sys-09',
-        version: 1
-      }
-    },
-    {
-      id: 'emr_009',
-      patientId: 'pat_sarah_001',
-      timestamp: new Date(Date.now() - 12 * 3600000).toISOString(),
-      category: 'allergy',
-      title: 'Critical Allergy Alert: Beta-Lactam & Sulfonamides',
-      description: 'Severe Type-1 IgE hypersensitivity documented: Acute facial angioedema and extensive cutaneous urticaria following oral Amoxicillin. Avoid: Penicillins, Ampicillin, Co-amoxiclav, and Trimethoprim-Sulfamethoxazole (Septrin). Safe alternatives: Macrolides (Azithromycin) and Fluoroquinolones.',
-      doctorName: 'Dr. Ronald Mukasa',
-      doctorRole: 'Consultant Cardiologist',
-      doctorAvatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80',
-      clinicBranch: 'VitaNova Alert Registry',
-      syncStatus: 'synced',
-      auditTrail: {
-        createdAt: new Date(Date.now() - 12 * 3600000).toISOString(),
-        author: 'Dr. Ronald Mukasa',
-        device: 'terminal-nakawa-01',
-        version: 1
-      }
-    }
-  ];
-
-  await db.medicalRecords.bulkAdd(sampleRecords);
-
-  // 4. Chronic Care Plan
-  const hypertensionCarePlan: CarePlan = {
-    id: 'cp_htn_001',
-    patientId: 'pat_sarah_001',
-    condition: 'Hypertension',
-    title: 'Hypertension Wellness & Blood Pressure Control Plan',
-    goals: [
-      'Maintain resting BP consistently below 130/80 mmHg',
-      'Daily 30-minute moderate walking along Kampala green trails',
-      'Reduce dietary sodium intake to under 2,000 mg/day',
-      '100% medication adherence logged via VitaCare reminder'
-    ],
-    monitoringSchedule: 'Twice weekly morning BP & weekly random glucose recording',
-    prescribedMedications: [
-      {
-        name: 'Amlodipine Besylate',
-        dosage: '5mg',
-        frequency: 'Once daily at 08:00 AM',
-        adherencePercentage: 96
-      }
-    ],
-    careTeam: [
-      {
-        name: 'Dr. Ronald Mukasa',
-        role: 'Supervising Cardiologist',
-        phone: '+256 702 110 334',
-        avatar: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80'
-      },
-      {
-        name: 'Sister Florence Nabatanzi',
-        role: 'Home Care Nurse',
-        phone: '+256 774 229 881',
-        avatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80'
-      }
-    ],
-    nextReviewDate: '2026-09-20',
-    targetMetrics: [
-      { metric: 'Systolic BP', target: '< 130 mmHg', current: '128 mmHg' },
-      { metric: 'Diastolic BP', target: '< 80 mmHg', current: '82 mmHg' },
-      { metric: 'Fasting Glucose', target: '4.0 - 5.8 mmol/L', current: '5.2 mmol/L' }
-    ],
-    syncStatus: 'synced'
-  };
-
-  await db.carePlans.add(hypertensionCarePlan);
-
-  // 5. Home Care Requests
-  const sampleHomeVisits: HomeCareRequest[] = [
-    {
-      id: 'hcr_001',
-      patientId: 'pat_sarah_001',
-      patientName: 'Sarah Namubiru',
-      serviceType: 'Nursing',
-      address: 'Plot 14, Ntinda-Nakawa Road, Kampala',
-      scheduledDate: '2026-09-10 10:00 AM',
-      status: 'confirmed',
-      assignedWorkerId: 'hw_florence_01',
-      assignedWorkerName: 'Sister Florence Nabatanzi',
-      assignedWorkerAvatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
-      clinicalNotes: 'Scheduled follow-up for vital check, medication reconciliation, and stress management coaching.',
-      syncStatus: 'synced'
-    },
-    {
-      id: 'hcr_002',
-      patientId: 'pat_sarah_001',
-      patientName: 'Christine Namubiru (Mother)',
-      serviceType: 'Physiotherapy',
-      address: 'Plot 14, Ntinda-Nakawa Road, Kampala',
-      scheduledDate: '2026-09-15 02:00 PM',
-      status: 'confirmed',
-      assignedWorkerId: 'hw_kato_physio',
-      assignedWorkerName: 'Dr. Brian Kato (PT)',
-      assignedWorkerAvatar: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80',
-      clinicalNotes: 'Post-fall knee joint mobility exercises and gentle resistance training.',
-      syncStatus: 'synced'
-    }
-  ];
-
-  await db.homeVisits.bulkAdd(sampleHomeVisits);
+  const eduCount = await db.healthEducation.count();
+  if (eduCount > 0) return;
 
   // 6. Health Education Video Talks Library (Pre-cached for offline video study)
   const sampleEducation: HealthEducationArticle[] = [

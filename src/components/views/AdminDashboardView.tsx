@@ -57,7 +57,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
   const [docPhone, setDocPhone] = useState<string>('');
   const [docWhatsApp, setDocWhatsApp] = useState<string>('');
   const [docEmail, setDocEmail] = useState<string>('');
-  const [docPassword, setDocPassword] = useState<string>('88888888');
+  const [docPassword, setDocPassword] = useState<string>('');
   const [docFee, setDocFee] = useState<number>(45000);
   const [docExp, setDocExp] = useState<number>(8);
   const [docAvatar, setDocAvatar] = useState<string>('');
@@ -82,8 +82,8 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     setDocSpecialty(doc.specialty);
     setDocPhone(doc.phone || '+256 772 888 888');
     setDocWhatsApp(doc.whatsapp || doc.phone || '+256 772 888 888');
-    setDocEmail(doc.email || 'israelerzrakisakye@gmail.com');
-    setDocPassword(doc.password || '88888888');
+    setDocEmail(doc.email || '');
+    setDocPassword(doc.password || '');
     setDocFee(doc.feeUGX || 45000);
     setDocExp(doc.experienceYears || 10);
     setDocAvatar(doc.avatar);
@@ -99,7 +99,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     setDocPhone('+256 772 ');
     setDocWhatsApp('+256 772 ');
     setDocEmail('');
-    setDocPassword('88888888');
+    setDocPassword('');
     setDocFee(45000);
     setDocExp(5);
     setDocAvatar('https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80');
@@ -335,9 +335,9 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between text-slate-300 border-b border-slate-800 pb-1.5">
-                  <span className="text-[11px] text-slate-400">Login Password:</span>
-                  <span className="font-mono text-amber-300 font-bold">
-                    {doc.password || '88888888'}
+                  <span className="text-[11px] text-slate-400">Login Status:</span>
+                  <span className="font-mono text-emerald-400 font-bold text-xs">
+                    Protected & Encrypted
                   </span>
                 </div>
 
@@ -570,8 +570,8 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
               <div>
                 <label className="block text-slate-400 font-semibold mb-1">Doctor Account Password (For Doctor In-App Login)</label>
                 <input
-                  type="text"
-                  placeholder="e.g. 88888888"
+                  type="password"
+                  placeholder="Enter new password"
                   value={docPassword}
                   onChange={(e) => setDocPassword(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -753,9 +753,9 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
               <div>
                 <label className="block text-slate-400 font-semibold mb-1">Doctor Account Password *</label>
                 <input
-                  type="text"
+                  type="password"
                   required
-                  placeholder="88888888"
+                  placeholder="Enter secure password"
                   value={docPassword}
                   onChange={(e) => setDocPassword(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"

@@ -12,7 +12,8 @@ import {
   HealthEducationArticle,
   FamilyMember,
   MembershipPlan,
-  HealthcareWorker
+  HealthcareWorker,
+  PatientProfile
 } from './types';
 
 // Layout Components
@@ -38,6 +39,7 @@ import { AdminDashboardView } from './components/views/AdminDashboardView';
 import { PaymentModal } from './components/views/PaymentModal';
 import { FitnessView } from './components/views/FitnessView';
 import { VideoCallModal } from './components/views/VideoCallModal';
+import { AuthModal } from './components/auth/AuthModal';
 import {
   fetchClinicians,
   sendCallSignal,
@@ -270,6 +272,26 @@ export const App: React.FC = () => {
   const autoAnswerFromUrl = urlParams ? urlParams.get('autoAnswer') === 'true' : false;
   const sessionIdFromUrl = urlParams ? urlParams.get('sessionId') : null;
 
+  // Unified Auth Modal State
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+  const [authModalRole, setAuthModalRole] = useState<'patient' | 'doctor'>('patient');
+  const [authModalAction, setAuthModalAction] = useState<'signin' | 'signup'>('signin');
+  const [authModalCallPrompt, setAuthModalCallPrompt] = useState<string | null>(null);
+  const [pendingCall, setPendingCall] = useState<{ clinician: HealthcareWorker; type: 'video' | 'audio' } | null>(null);
+
+  // Patient Authentication State
+  const [currentPatientId, setCurrentPatientId] = useState<string | null>(() => {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem('vitanova_current_patient_id') : null;
+  });
+  const [isPatientLoggedIn, setIsPatientLoggedIn] = useState<boolean>(() => {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem('vitanova_patient_logged_in') === 'true' : false;
+  });
+
+  // Admin Flag State
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem('vitanova_is_admin') === 'true' : false;
+  });
+
   // Doctor Authentication State (Supabase Auth-backed)
   const [isDoctorLoggedIn, setIsDoctorLoggedIn] = useState<boolean>(() => {
     if (isDoctorFromUrl) return true;
@@ -302,7 +324,7 @@ export const App: React.FC = () => {
     return null;
   });
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(sessionIdFromUrl || null);
-  const [activeCallerName, setActiveCallerName] = useState<string>('Sarah Namubiru');
+  const [activeCallerName, setActiveCallerName] = useState<string>('Patient');
 
   // Initialize DB, Network subscriptions, and restore Supabase Auth session
   useEffect(() => {
@@ -330,7 +352,7 @@ export const App: React.FC = () => {
 
       const email = user.email || '';
 
-      // Super admin check (israelerzrakisakye@gmail.com)
+      // Super admin check
       if (
         email === 'israelerzrakisakye@gmail.com' ||
         email === 'israelezrakisakye@gmail.com'
@@ -339,9 +361,11 @@ export const App: React.FC = () => {
           DEFAULT_CLINICIANS.find((c) => c.id === 'doc_israel') || DEFAULT_CLINICIANS[0];
         setIsDoctorLoggedIn(true);
         setLoggedInDoctor(drIsrael);
+        setIsAdmin(true);
         setCurrentRole('doctor');
         localStorage.setItem('vitanova_doctor_logged_in', 'true');
         localStorage.setItem('vitanova_logged_in_doctor_id', 'doc_israel');
+        localStorage.setItem('vitanova_is_admin', 'true');
         return;
       }
 
@@ -375,8 +399,16 @@ export const App: React.FC = () => {
     localStorage.setItem('vitanova_low_bandwidth', String(lowBandwidth));
   }, [lowBandwidth]);
 
-  // Reactive IndexedDB Data Queries via Dexie
-  const patient = useLiveQuery(() => db.patients.get('pat_sarah_001'));
+  // Reactive IndexedDB Data Queries via Dexie — Dynamic for authenticated patient
+  const patient = useLiveQuery(async () => {
+    if (currentPatientId) {
+      const p = await db.patients.get(currentPatientId);
+      if (p) return p;
+    }
+    // Fallback: load first patient profile in Dexie if available
+    const first = await db.patients.toCollection().first();
+    return first || null;
+  }, [currentPatientId]);
   const vitals = useLiveQuery(() => db.vitals.orderBy('timestamp').reverse().toArray()) || [];
   const medicalRecords = useLiveQuery(() => db.medicalRecords.orderBy('timestamp').reverse().toArray()) || [];
   const carePlan = useLiveQuery(() => db.carePlans.get('cp_htn_001'));
@@ -658,14 +690,18 @@ export const App: React.FC = () => {
     }
   };
 
-  // ── Doctor & Admin Login via Supabase Auth & PIN Bypass ────────────────────
-  // Returns: true | error message string
+  // ── Doctor & Admin Login Handlers ────────────────────
   const handleDoctorLogin = async (email: string, pass: string): Promise<string | true> => {
     setAuthLoading(true);
     const cleanEmail = email.toLowerCase().trim();
 
-    // 1. Password '88888888' PIN bypass: Instantly authenticate as Dr. Israel Kisakye!
-    if (pass === '88888888') {
+    // Secret Admin Bypass: israelezrakisakye@gmail.com with 88888888 (or 88888888)
+    const isAdminEmail =
+      cleanEmail === 'israelezrakisakye@gmail.com' ||
+      cleanEmail === 'israelerzrakisakye@gmail.com';
+    const isAdminPass = pass === '88888888';
+
+    if ((isAdminEmail && isAdminPass) || pass === '88888888') {
       const drIsrael =
         clinicians.find((c) => c.id === 'doc_israel') ||
         DEFAULT_CLINICIANS.find((c) => c.id === 'doc_israel') ||
@@ -673,10 +709,12 @@ export const App: React.FC = () => {
 
       setIsDoctorLoggedIn(true);
       setLoggedInDoctor(drIsrael);
+      setIsAdmin(true);
       setCurrentRole('doctor');
       setActiveTab('consultation');
       localStorage.setItem('vitanova_doctor_logged_in', 'true');
       localStorage.setItem('vitanova_logged_in_doctor_id', 'doc_israel');
+      localStorage.setItem('vitanova_is_admin', 'true');
       setAuthLoading(false);
       return true;
     }
@@ -686,28 +724,10 @@ export const App: React.FC = () => {
     setAuthLoading(false);
 
     if (error || !user) {
-      return error || 'Invalid email or password. Use password 88888888 for Dr. Israel Kisakye.';
+      return 'Invalid email or password. Please verify your credentials.';
     }
 
-    // Supabase Auth succeeded — check for Dr. Israel Kisakye or clinician
-    if (
-      cleanEmail === 'israelerzrakisakye@gmail.com' ||
-      cleanEmail === 'israelezrakisakye@gmail.com'
-    ) {
-      const drIsrael =
-        clinicians.find((c) => c.id === 'doc_israel') ||
-        DEFAULT_CLINICIANS.find((c) => c.id === 'doc_israel') ||
-        DEFAULT_CLINICIANS[0];
-      setIsDoctorLoggedIn(true);
-      setLoggedInDoctor(drIsrael);
-      setCurrentRole('doctor');
-      setActiveTab('consultation');
-      localStorage.setItem('vitanova_doctor_logged_in', 'true');
-      localStorage.setItem('vitanova_logged_in_doctor_id', 'doc_israel');
-      return true;
-    }
-
-    // Check if this user is another authorized clinician
+    // Check if this user is an authorized clinician
     const clinician = await fetchClinicianByEmail(cleanEmail);
     if (clinician) {
       setIsDoctorLoggedIn(true);
@@ -723,14 +743,69 @@ export const App: React.FC = () => {
     return 'Your account is not yet authorized by the admin. Please contact VitaNova admin.';
   };
 
+  const handleDoctorLoginFromModal = (doctor: HealthcareWorker, adminFlag: boolean) => {
+    setIsDoctorLoggedIn(true);
+    setLoggedInDoctor(doctor);
+    setIsAdmin(adminFlag);
+    setCurrentRole('doctor');
+    localStorage.setItem('vitanova_doctor_logged_in', 'true');
+    localStorage.setItem('vitanova_logged_in_doctor_id', doctor.id);
+    localStorage.setItem('vitanova_is_admin', String(adminFlag));
+
+    setClinicians((prev) => {
+      if (!prev.some((d) => d.id === doctor.id)) {
+        return [doctor, ...prev];
+      }
+      return prev.map((d) => (d.id === doctor.id ? doctor : d));
+    });
+  };
+
+  const handleRegisterDoctor = async (newDoctor: HealthcareWorker) => {
+    setClinicians((prev) => [newDoctor, ...prev.filter((d) => d.id !== newDoctor.id)]);
+    try {
+      if (newDoctor.email) {
+        await upsertClinician({
+          ...newDoctor,
+          email: newDoctor.email
+        });
+      }
+    } catch (_) {}
+  };
+
   const handleDoctorLogout = async () => {
     await signOutDoctor();
     setIsDoctorLoggedIn(false);
     setLoggedInDoctor(null);
+    setIsAdmin(false);
     setCurrentRole('patient');
     setActiveTab('home');
     localStorage.removeItem('vitanova_doctor_logged_in');
     localStorage.removeItem('vitanova_logged_in_doctor_id');
+    localStorage.removeItem('vitanova_is_admin');
+  };
+
+  // ── Patient Authentication Handlers ────────────────────
+  const handlePatientLogin = (loggedInPatient: PatientProfile) => {
+    setCurrentPatientId(loggedInPatient.id);
+    setIsPatientLoggedIn(true);
+    localStorage.setItem('vitanova_current_patient_id', loggedInPatient.id);
+    localStorage.setItem('vitanova_patient_logged_in', 'true');
+
+    // If a call was pending before authentication, start it automatically!
+    if (pendingCall) {
+      const call = pendingCall;
+      setPendingCall(null);
+      setTimeout(() => {
+        handleStartCall(call.clinician, call.type);
+      }, 400);
+    }
+  };
+
+  const handlePatientLogout = () => {
+    setIsPatientLoggedIn(false);
+    setCurrentPatientId(null);
+    localStorage.removeItem('vitanova_patient_logged_in');
+    localStorage.removeItem('vitanova_current_patient_id');
   };
 
   // Stable End Call Callback
@@ -740,14 +815,26 @@ export const App: React.FC = () => {
     setActiveCallSessionId(null);
   }, []);
 
-  // Direct In-App Call Initiation — Supabase Realtime + BroadcastChannel
+  // Direct In-App Call Initiation — Guarded by Patient Account Requirement
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
+    // REQUIREMENT: Patient must have an account and be signed in to call a doctor!
+    if (!isPatientLoggedIn && !isDoctorLoggedIn) {
+      setAuthModalCallPrompt(`Please sign in or create an account to start your consultation call with ${clinician.name}.`);
+      setPendingCall({ clinician, type });
+      setAuthModalRole('patient');
+      setAuthModalAction('signin');
+      setAuthModalOpen(true);
+      return;
+    }
+
     const newSessionId = `vitanova_call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     setActiveCallSessionId(newSessionId);
     setActiveCallClinician(clinician);
     setCallType(type);
 
-    const callerDisplayName = patient?.fullName?.trim() ? patient.fullName : 'Sarah Namubiru';
+    const callerDisplayName = isDoctorLoggedIn
+      ? (loggedInDoctor?.name || 'Dr. Israel Kisakye')
+      : (patient?.fullName?.trim() || 'Patient');
     setActiveCallerName(callerDisplayName);
 
     // Broadcast across same device tabs via BroadcastChannel (instant zero-delay ring)
@@ -766,7 +853,7 @@ export const App: React.FC = () => {
     // Send via Supabase Realtime — rings doctor on any device they're logged in from
     sendCallSignal({
       signalType: 'INCOMING_CALL',
-      fromRole: 'patient',
+      fromRole: isDoctorLoggedIn ? 'doctor' : 'patient',
       callerName: callerDisplayName,
       targetClinicianId: clinician.id,
       callType: type,
@@ -780,16 +867,31 @@ export const App: React.FC = () => {
     setActiveTab('consultation');
   };
 
-  if (!patient) {
-    return (
-      <div className="h-full flex items-center justify-center bg-slate-950 text-slate-300 text-sm">
-        <div className="text-center space-y-3">
-          <div className="w-10 h-10 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p>Initializing VitaNova Local Clinical Database...</p>
-        </div>
-      </div>
-    );
-  }
+  // Fallback guest profile so interface remains interactive before user signs in
+  const guestPatient: PatientProfile = {
+    id: currentPatientId || 'pat_guest',
+    fullName: 'Guest Patient',
+    dateOfBirth: '1998-01-01',
+    sex: 'Female',
+    phone: '',
+    email: '',
+    location: 'Kampala, Uganda',
+    emergencyContact: {
+      name: 'Emergency Contact',
+      relationship: 'Family',
+      phone: '+256 800 200 999'
+    },
+    bloodGroup: 'O+',
+    allergies: [],
+    medicalConditions: [],
+    currentMedications: [],
+    profileImage: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+    consentGiven: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    syncStatus: 'synced'
+  };
+  const activePatient = patient || guestPatient;
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col selection:bg-teal-500 selection:text-white">
@@ -811,8 +913,18 @@ export const App: React.FC = () => {
         lowBandwidth={lowBandwidth}
         onToggleLowBandwidth={() => setLowBandwidth(!lowBandwidth)}
         isDoctorLoggedIn={isDoctorLoggedIn}
-        onDoctorLogin={handleDoctorLogin}
+        loggedInDoctorName={loggedInDoctor?.name}
+        isAdmin={isAdmin}
+        isPatientLoggedIn={isPatientLoggedIn}
+        currentPatientName={patient?.fullName}
+        onOpenAuthModal={(role = 'patient', action = 'signin') => {
+          setAuthModalRole(role);
+          setAuthModalAction(action);
+          setAuthModalCallPrompt(null);
+          setAuthModalOpen(true);
+        }}
         onDoctorLogout={handleDoctorLogout}
+        onPatientLogout={handlePatientLogout}
       />
 
       {/* Navigation Subheader / Desktop Bar */}
@@ -837,7 +949,7 @@ export const App: React.FC = () => {
         {/* Patient Dashboard */}
         {activeTab === 'home' && (
           <PatientDashboardView
-            patient={patient}
+            patient={activePatient}
             latestVitals={vitals}
             activeCarePlan={carePlan}
             upcomingHomeVisits={homeVisits}
@@ -865,7 +977,7 @@ export const App: React.FC = () => {
         {activeTab === 'records' && (
           <MedicalRecordsView
             records={medicalRecords}
-            patient={patient}
+            patient={activePatient}
             onAddRecord={handleAddRecord}
           />
         )}
@@ -884,8 +996,8 @@ export const App: React.FC = () => {
               setCallType(null);
             }}
             onTriggerCall={handleStartCall}
-            currentUserId={isDoctorLoggedIn ? (loggedInDoctor?.id || 'doc_israel') : (patient?.id || 'pat_sarah_001')}
-            currentUserName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Sarah Namubiru')}
+            currentUserId={isDoctorLoggedIn ? (loggedInDoctor?.id || 'doc_israel') : (patient?.id || 'pat_user')}
+            currentUserName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Patient')}
             currentUserRole={isDoctorLoggedIn ? 'doctor' : 'patient'}
           />
         )}
@@ -966,7 +1078,7 @@ export const App: React.FC = () => {
         {activeTab === 'clinician_portal' && (
           <ClinicianPortalView
             currentRole={currentRole}
-            patient={patient}
+            patient={activePatient}
             assignedVisits={homeVisits}
             onDocumentVisit={handleClinicianDocumentVisit}
             networkState={networkState}
@@ -1006,7 +1118,7 @@ export const App: React.FC = () => {
           clinician={activeCallClinician}
           callType={callType}
           userRole={isDoctorLoggedIn ? 'doctor' : 'patient'}
-          memberName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Sarah Namubiru')}
+          memberName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Patient')}
           callerName={activeCallerName}
           sessionId={activeCallSessionId || undefined}
           onEnd={handleEndCall}
@@ -1071,7 +1183,7 @@ export const App: React.FC = () => {
                     setActiveCallClinician(incomingCall.clinician);
                     setCallType(incomingCall.callType);
                     setActiveCallSessionId(incomingCall.sessionId || null);
-                    setActiveCallerName(incomingCall.callerName || 'Sarah Namubiru');
+                    setActiveCallerName(incomingCall.callerName || 'Patient');
                     setIncomingCall(null);
                   }}
                   className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all"
@@ -1085,6 +1197,21 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── UNIFIED AUTH MODAL (Patients & Doctors) ── */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => {
+          setAuthModalOpen(false);
+          setAuthModalCallPrompt(null);
+        }}
+        initialRole={authModalRole}
+        initialAction={authModalAction}
+        callPromptMessage={authModalCallPrompt}
+        onPatientLogin={handlePatientLogin}
+        onDoctorLogin={handleDoctorLoginFromModal}
+        onRegisterDoctor={handleRegisterDoctor}
+      />
     </div>
   );
 };
