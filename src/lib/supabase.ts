@@ -550,6 +550,7 @@ export const sendCallSignal = async (opts: {
       caller_name: opts.callerName,
       target_clinician_id: opts.targetClinicianId,
       call_type: opts.callType || 'video',
+      session_id: opts.sessionId,
       payload: mergedPayload
     })
     .select()
@@ -563,7 +564,7 @@ export const sendCallSignal = async (opts: {
 };
 
 /**
- * Fetch recent call signals (e.g. pending OFFER or ANSWER sent in the last 2 minutes).
+ * Fetch recent call signals (e.g. pending OFFER, ANSWER, or ICE candidates sent in the last 2 minutes).
  * Used when a doctor or patient opens the call modal to catch any signals sent prior to joining.
  */
 export const fetchRecentCallSignals = async (
@@ -580,8 +581,8 @@ export const fetchRecentCallSignals = async (
       .eq('target_clinician_id', clinicianId)
       .in('signal_type', signalTypes)
       .gt('created_at', cutoff)
-      .order('created_at', { ascending: false })
-      .limit(10);
+      .order('created_at', { ascending: true })
+      .limit(50);
 
     const { data, error } = await query;
     if (error || !data) return [];
@@ -589,7 +590,8 @@ export const fetchRecentCallSignals = async (
     const results: CallSignalEvent[] = [];
     for (const row of data) {
       const p = (row.payload as CallSignalPayload) || {};
-      if (sessionId && p.sessionId && p.sessionId !== sessionId) {
+      const rowSessionId = row.session_id || p.sessionId;
+      if (sessionId && rowSessionId && rowSessionId !== sessionId) {
         continue;
       }
       results.push({
@@ -597,7 +599,7 @@ export const fetchRecentCallSignals = async (
         fromRole: row.from_role || p.fromRole || 'patient',
         callerName: row.caller_name,
         callType: (row.call_type as 'video' | 'audio') || 'video',
-        sessionId: p.sessionId,
+        sessionId: rowSessionId,
         senderId: p.senderId,
         payload: p
       });
