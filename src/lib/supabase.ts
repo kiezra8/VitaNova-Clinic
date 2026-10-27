@@ -654,3 +654,313 @@ export const cleanupStaleCallSignals = async () => {
   await supabase.from('call_signals').delete().lt('created_at', cutoff);
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WHATSAPP-STYLE MESSAGING — Persistent chat between patients & doctors
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderRole: 'patient' | 'doctor' | 'system';
+  senderName: string;
+  recipientId: string;
+  messageType: 'text' | 'image' | 'voice' | 'document' | 'system' | 'call_event';
+  content: string;
+  mediaUrl?: string;
+  mediaMimeType?: string;
+  replyToId?: string;
+  isRead: boolean;
+  isDelivered: boolean;
+  isStarred: boolean;
+  callType?: 'video' | 'audio';
+  callDurationSec?: number;
+  createdAt: string;
+}
+
+/** Generate a deterministic conversation ID for two parties */
+export const getConversationId = (id1: string, id2: string): string => {
+  return id1 < id2 ? `${id1}__${id2}` : `${id2}__${id1}`;
+};
+
+/** Send a WhatsApp-style message */
+export const sendMessage = async (opts: {
+  senderId: string;
+  senderRole: 'patient' | 'doctor';
+  senderName: string;
+  recipientId: string;
+  content: string;
+  messageType?: 'text' | 'image' | 'voice' | 'document' | 'system' | 'call_event';
+  mediaUrl?: string;
+  mediaMimeType?: string;
+  replyToId?: string;
+  callType?: 'video' | 'audio';
+  callDurationSec?: number;
+}): Promise<ChatMessage | null> => {
+  const conversationId = getConversationId(opts.senderId, opts.recipientId);
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({
+      conversation_id: conversationId,
+      sender_id: opts.senderId,
+      sender_role: opts.senderRole,
+      sender_name: opts.senderName,
+      recipient_id: opts.recipientId,
+      message_type: opts.messageType || 'text',
+      content: opts.content,
+      media_url: opts.mediaUrl || null,
+      media_mime_type: opts.mediaMimeType || null,
+      reply_to_id: opts.replyToId || null,
+      is_delivered: true,
+      call_type: opts.callType || null,
+      call_duration_sec: opts.callDurationSec || null
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[VitaNova] sendMessage error:', error.message);
+    return null;
+  }
+  return mapDbRowToChatMessage(data);
+};
+
+/** Fetch all messages for a conversation */
+export const fetchMessages = async (
+  conversationId: string,
+  limit = 100
+): Promise<ChatMessage[]> => {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error('[VitaNova] fetchMessages error:', error.message);
+    return [];
+  }
+  return (data || []).map(mapDbRowToChatMessage);
+};
+
+/** Fetch all conversations for a user (latest message per conversation) */
+export const fetchConversations = async (
+  userId: string
+): Promise<Array<{ conversationId: string; otherPartyId: string; lastMessage: ChatMessage; unreadCount: number }>> => {
+  // Fetch all messages where user is sender or recipient, ordered by time
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (error || !data) return [];
+
+  // Group by conversation and take latest message
+  const convMap = new Map<string, { msg: any; unread: number }>();
+  for (const row of data) {
+    const convId = row.conversation_id;
+    if (!convMap.has(convId)) {
+      convMap.set(convId, { msg: row, unread: 0 });
+    }
+    if (row.recipient_id === userId && !row.is_read) {
+      const entry = convMap.get(convId)!;
+      entry.unread++;
+    }
+  }
+
+  return Array.from(convMap.entries()).map(([convId, { msg, unread }]) => ({
+    conversationId: convId,
+    otherPartyId: msg.sender_id === userId ? msg.recipient_id : msg.sender_id,
+    lastMessage: mapDbRowToChatMessage(msg),
+    unreadCount: unread
+  }));
+};
+
+/** Mark all messages in a conversation as read */
+export const markMessagesAsRead = async (conversationId: string, recipientId: string) => {
+  await supabase
+    .from('messages')
+    .update({ is_read: true, updated_at: new Date().toISOString() })
+    .eq('conversation_id', conversationId)
+    .eq('recipient_id', recipientId)
+    .eq('is_read', false);
+};
+
+/** Subscribe to new messages in a conversation (Supabase Realtime) */
+export const subscribeToMessages_v2 = (
+  conversationId: string,
+  onNewMessage: (msg: ChatMessage) => void
+): (() => void) => {
+  const channel = supabase
+    .channel(`chat_${conversationId}_${Date.now()}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${conversationId}`
+      },
+      (payload) => {
+        onNewMessage(mapDbRowToChatMessage(payload.new as any));
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+};
+
+/** Send typing indicator via Supabase Realtime Broadcast (ephemeral, not stored) */
+export const sendTypingIndicator = (conversationId: string, userId: string, userName: string, isTyping: boolean) => {
+  const channel = supabase.channel(`typing_${conversationId}`);
+  channel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') {
+      channel.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { userId, userName, isTyping }
+      });
+      // Cleanup after sending
+      setTimeout(() => supabase.removeChannel(channel), 500);
+    }
+  });
+};
+
+/** Subscribe to typing indicators */
+export const subscribeToTyping = (
+  conversationId: string,
+  onTyping: (data: { userId: string; userName: string; isTyping: boolean }) => void
+): (() => void) => {
+  const channel = supabase
+    .channel(`typing_${conversationId}`)
+    .on('broadcast', { event: 'typing' }, (payload) => {
+      onTyping(payload.payload as any);
+    })
+    .subscribe();
+
+  return () => { supabase.removeChannel(channel); };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CALL LOGS — Persistent call history
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CallLog {
+  id: string;
+  callerId: string;
+  callerName: string;
+  callerRole: 'patient' | 'doctor';
+  calleeId: string;
+  calleeName: string;
+  callType: 'video' | 'audio';
+  status: 'ringing' | 'answered' | 'missed' | 'declined' | 'ended';
+  sessionId?: string;
+  startedAt: string;
+  answeredAt?: string;
+  endedAt?: string;
+  durationSec: number;
+}
+
+/** Create a call log entry */
+export const createCallLog = async (opts: {
+  callerId: string;
+  callerName: string;
+  callerRole: 'patient' | 'doctor';
+  calleeId: string;
+  calleeName: string;
+  callType: 'video' | 'audio';
+  sessionId?: string;
+}): Promise<CallLog | null> => {
+  const { data, error } = await supabase
+    .from('call_logs')
+    .insert({
+      caller_id: opts.callerId,
+      caller_name: opts.callerName,
+      caller_role: opts.callerRole,
+      callee_id: opts.calleeId,
+      callee_name: opts.calleeName,
+      call_type: opts.callType,
+      session_id: opts.sessionId || null,
+      status: 'ringing'
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[VitaNova] createCallLog error:', error.message);
+    return null;
+  }
+  return mapDbRowToCallLog(data);
+};
+
+/** Update call log status (answered, ended, missed, declined) */
+export const updateCallLog = async (logId: string, updates: {
+  status?: string;
+  answeredAt?: string;
+  endedAt?: string;
+  durationSec?: number;
+}) => {
+  const row: Record<string, any> = {};
+  if (updates.status) row.status = updates.status;
+  if (updates.answeredAt) row.answered_at = updates.answeredAt;
+  if (updates.endedAt) row.ended_at = updates.endedAt;
+  if (updates.durationSec !== undefined) row.duration_sec = updates.durationSec;
+
+  await supabase.from('call_logs').update(row).eq('id', logId);
+};
+
+/** Fetch call history for a user */
+export const fetchCallLogs = async (userId: string, limit = 50): Promise<CallLog[]> => {
+  const { data, error } = await supabase
+    .from('call_logs')
+    .select('*')
+    .or(`caller_id.eq.${userId},callee_id.eq.${userId}`)
+    .order('started_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return [];
+  return (data || []).map(mapDbRowToCallLog);
+};
+
+// ── Mapping helpers ──────────────────────────────────────────────────────────
+
+const mapDbRowToChatMessage = (row: any): ChatMessage => ({
+  id: row.id,
+  conversationId: row.conversation_id,
+  senderId: row.sender_id,
+  senderRole: row.sender_role,
+  senderName: row.sender_name,
+  recipientId: row.recipient_id,
+  messageType: row.message_type,
+  content: row.content,
+  mediaUrl: row.media_url,
+  mediaMimeType: row.media_mime_type,
+  replyToId: row.reply_to_id,
+  isRead: row.is_read,
+  isDelivered: row.is_delivered,
+  isStarred: row.is_starred,
+  callType: row.call_type,
+  callDurationSec: row.call_duration_sec,
+  createdAt: row.created_at
+});
+
+const mapDbRowToCallLog = (row: any): CallLog => ({
+  id: row.id,
+  callerId: row.caller_id,
+  callerName: row.caller_name,
+  callerRole: row.caller_role,
+  calleeId: row.callee_id,
+  calleeName: row.callee_name,
+  callType: row.call_type,
+  status: row.status,
+  sessionId: row.session_id,
+  startedAt: row.started_at,
+  answeredAt: row.answered_at,
+  endedAt: row.ended_at,
+  durationSec: row.duration_sec || 0
+});

@@ -877,8 +877,12 @@ export const App: React.FC = () => {
               setCallType(null);
             }}
             onTriggerCall={handleStartCall}
+            currentUserId={isDoctorLoggedIn ? (loggedInDoctor?.id || 'doc_israel') : (patient?.id || 'pat_sarah_001')}
+            currentUserName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Sarah Namubiru')}
+            currentUserRole={isDoctorLoggedIn ? 'doctor' : 'patient'}
           />
         )}
+
 
         {/* Community Home Care */}
         {activeTab === 'homecare' && (
