@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, seedInitialDataIfEmpty } from './lib/db';
 import { networkSentinel } from './lib/network';
@@ -733,6 +733,13 @@ export const App: React.FC = () => {
     localStorage.removeItem('vitanova_logged_in_doctor_id');
   };
 
+  // Stable End Call Callback
+  const handleEndCall = useCallback(() => {
+    setActiveCallClinician(null);
+    setCallType(null);
+    setActiveCallSessionId(null);
+  }, []);
+
   // Direct In-App Call Initiation — Supabase Realtime + BroadcastChannel
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
     const newSessionId = `vitanova_call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -1002,11 +1009,7 @@ export const App: React.FC = () => {
           memberName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Sarah Namubiru')}
           callerName={activeCallerName}
           sessionId={activeCallSessionId || undefined}
-          onEnd={() => {
-            setActiveCallClinician(null);
-            setCallType(null);
-            setActiveCallSessionId(null);
-          }}
+          onEnd={handleEndCall}
         />
       )}
 
