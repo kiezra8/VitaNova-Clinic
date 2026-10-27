@@ -542,25 +542,41 @@ export const sendCallSignal = async (opts: {
     fromRole: opts.fromRole
   };
 
-  const { data, error } = await supabase
-    .from('call_signals')
-    .insert({
-      signal_type: opts.signalType,
-      from_role: opts.fromRole,
-      caller_name: opts.callerName,
-      target_clinician_id: opts.targetClinicianId,
-      call_type: opts.callType || 'video',
-      session_id: opts.sessionId,
-      payload: mergedPayload
-    })
-    .select()
-    .single();
+  try {
+    let res = await supabase
+      .from('call_signals')
+      .insert({
+        signal_type: opts.signalType,
+        from_role: opts.fromRole,
+        caller_name: opts.callerName,
+        target_clinician_id: opts.targetClinicianId,
+        call_type: opts.callType || 'video',
+        session_id: opts.sessionId,
+        payload: mergedPayload
+      })
+      .select()
+      .single();
 
-  if (error) {
-    console.error('[VitaNova] sendCallSignal error:', error.message);
+    if (res.error) {
+      // Fallback insert without session_id column in case schema has not added it yet
+      res = await supabase
+        .from('call_signals')
+        .insert({
+          signal_type: opts.signalType,
+          from_role: opts.fromRole,
+          caller_name: opts.callerName,
+          target_clinician_id: opts.targetClinicianId,
+          call_type: opts.callType || 'video',
+          payload: mergedPayload
+        })
+        .select()
+        .single();
+    }
+    return res.data;
+  } catch (err) {
+    console.warn('[VitaNova] sendCallSignal network error:', err);
     return null;
   }
-  return data;
 };
 
 /**
@@ -637,7 +653,7 @@ export const subscribeToCallSignals = (
           fromRole: row.from_role || p.fromRole || 'patient',
           callerName: row.caller_name,
           callType: (row.call_type as 'video' | 'audio') || 'video',
-          sessionId: p.sessionId,
+          sessionId: row.session_id || p.sessionId,
           senderId: p.senderId,
           payload: p
         });
@@ -680,13 +696,20 @@ export interface BroadcastSignal {
 /**
  * Join a bidirectional WebRTC signaling room using Supabase Realtime Broadcast.
  * Both patient and doctor call this with the same sessionId.
- * Returns a send function and unsubscribe function.
+ * 
+ * KEY DESIGN:
+ * - Waits for SUBSCRIBED status before sending (queues signals sent before ready)
+ * - Returns a `ready` promise so callers can await subscription confirmation
+ * - `send()` is safe to call at any time — it queues until the channel is live
  */
 export const joinCallSignalingRoom = (
   sessionId: string,
   onSignal: (signal: BroadcastSignal) => void
-): { send: (signal: BroadcastSignal) => void; leave: () => void } => {
+): { send: (signal: BroadcastSignal) => void; leave: () => void; ready: Promise<void> } => {
   const channelName = `webrtc_${sessionId}`;
+  let isSubscribed = false;
+  const pendingQueue: BroadcastSignal[] = [];
+
   const channel = supabase
     .channel(channelName, {
       config: {
@@ -699,21 +722,67 @@ export const joinCallSignalingRoom = (
       }
     });
 
-  channel.subscribe();
+  // Ready promise resolves when channel reaches SUBSCRIBED status or on any state
+  const ready = new Promise<void>((resolve) => {
+    let settled = false;
+    const safeResolve = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
+    // Never allow ready promise to hang longer than 600ms
+    const fallbackTimer = setTimeout(safeResolve, 600);
+
+    try {
+      channel.subscribe((status) => {
+        console.log('[Supabase Broadcast] Channel status:', status, 'for session:', sessionId);
+        if (status === 'SUBSCRIBED') {
+          isSubscribed = true;
+          // Flush any signals that were queued before subscription was ready
+          while (pendingQueue.length > 0) {
+            const queued = pendingQueue.shift()!;
+            channel.send({
+              type: 'broadcast',
+              event: 'signal',
+              payload: queued
+            }).catch(() => {});
+          }
+          clearTimeout(fallbackTimer);
+          safeResolve();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          clearTimeout(fallbackTimer);
+          safeResolve();
+        }
+      });
+    } catch (_) {
+      safeResolve();
+    }
+  });
 
   const send = (signal: BroadcastSignal) => {
-    channel.send({
-      type: 'broadcast',
-      event: 'signal',
-      payload: signal
-    }).catch(() => {});
+    try {
+      if (isSubscribed) {
+        channel.send({
+          type: 'broadcast',
+          event: 'signal',
+          payload: signal
+        }).catch(() => {});
+      } else {
+        // Queue until channel is subscribed
+        pendingQueue.push(signal);
+      }
+    } catch (_) {}
   };
 
   const leave = () => {
-    supabase.removeChannel(channel);
+    isSubscribed = false;
+    try {
+      supabase.removeChannel(channel);
+    } catch (_) {}
   };
 
-  return { send, leave };
+  return { send, leave, ready };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

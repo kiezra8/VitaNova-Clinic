@@ -1115,6 +1115,7 @@ export const App: React.FC = () => {
       {/* ── LIVE VIDEO / VOICE CALL OVERLAY ── */}
       {activeCallClinician && callType && (
         <VideoCallModal
+          key={activeCallSessionId || activeCallClinician.id}
           clinician={activeCallClinician}
           callType={callType}
           userRole={isDoctorLoggedIn ? 'doctor' : 'patient'}

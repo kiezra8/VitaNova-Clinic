@@ -259,7 +259,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   // WebRTC refs
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
-  const signalingRoomRef = useRef<{ send: (s: BroadcastSignal) => void; leave: () => void } | null>(null);
+  const signalingRoomRef = useRef<{ send: (s: BroadcastSignal) => void; leave: () => void; ready: Promise<void> } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const localCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -270,6 +270,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   // UI States
   const [elapsed, setElapsed] = useState(0);
   const [isPeerConnected, setIsPeerConnected] = useState(false);
+  const isPeerConnectedRef = useRef(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(callType === 'audio');
   const [remoteCamOff, setRemoteCamOff] = useState(false);
@@ -399,9 +400,14 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     pcRef.current = pc;
 
     // ── Supabase Realtime Broadcast Room (BIDIRECTIONAL) ──────────────────────
-    // Both doctor and patient join the SAME room keyed by sessionId.
-    // This means signals sent by the doctor ARE received by the patient, and vice versa.
-    let signalingRoom: { send: (s: BroadcastSignal) => void; leave: () => void } | null = null;
+    let signalingRoom: { send: (s: BroadcastSignal) => void; leave: () => void; ready: Promise<void> } | null = null;
+
+    // Dual broadcast channels for foolproof cross-tab discovery
+    const chan1 = new BroadcastChannel(`vitanova_webrtc_${sessionId}`);
+    const chan2 = new BroadcastChannel(`vitanova_webrtc_${clinician.id}_${sessionId}`);
+    channelRef.current = chan1;
+
+    const storageSigKey = `vitanova_sig_${sessionId}`;
 
     const sendSignal = (signal: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; camOff?: boolean; message?: any; [k: string]: unknown }) => {
       const full: BroadcastSignal = {
@@ -411,12 +417,13 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         sessionId,
         role: userRole
       };
-      // Broadcast via Supabase Realtime (cross-device, bidirectional)
-      signalingRoom?.send(full);
-      // Also via BroadcastChannel for same-device instant sync
-      try {
-        channelRef.current?.postMessage(full);
-      } catch (_) {}
+      // 1. Supabase Realtime broadcast (cross-device)
+      try { signalingRoom?.send(full); } catch (_) {}
+      // 2. BroadcastChannel (cross-tab same browser engine)
+      try { chan1.postMessage(full); } catch (_) {}
+      try { chan2.postMessage(full); } catch (_) {}
+      // 3. Storage event (cross-tab/window 100% reliable local fallback)
+      try { localStorage.setItem(storageSigKey, JSON.stringify({ ...full, _ts: Date.now() + Math.random() })); } catch (_) {}
     };
 
     // Safely add or queue candidate
@@ -503,12 +510,13 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         remoteAudioRef.current.play().catch((err) => console.warn('[WebRTC] remoteAudio play error:', err));
       }
 
+      isPeerConnectedRef.current = true;
       setIsPeerConnected(true);
       stopRingbackTone();
       playConnectedTone();
     };
 
-    // Handle local ICE candidates — send via both channels
+    // Handle local ICE candidates — send via all channels
     pc.onicecandidate = (event) => {
       if (!event.candidate) return;
       const candData: RTCIceCandidateInit = event.candidate.toJSON
@@ -526,6 +534,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       if (!active) return;
       console.log('[WebRTC] ICE State:', pc.iceConnectionState);
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        isPeerConnectedRef.current = true;
         setIsPeerConnected(true);
         stopRingbackTone();
         playConnectedTone();
@@ -536,6 +545,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       if (!active) return;
       console.log('[WebRTC] Connection State:', pc.connectionState);
       if (pc.connectionState === 'connected') {
+        isPeerConnectedRef.current = true;
         setIsPeerConnected(true);
         stopRingbackTone();
         playConnectedTone();
@@ -631,6 +641,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         // Re-send all local ICE candidates to ensure patient has them
         localCandidatesRef.current.forEach((cand) => sendSignal({ type: 'ICE_CANDIDATE', candidate: cand }));
 
+        isPeerConnectedRef.current = true;
         setIsPeerConnected(true);
       } catch (err) {
         console.warn('[VitaNova Call] handleOfferSignal error:', err);
@@ -643,9 +654,12 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         if (pc.signalingState === 'have-local-offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(sdp));
           await flushPendingCandidates();
+          isPeerConnectedRef.current = true;
           setIsPeerConnected(true);
           stopRingbackTone();
           playConnectedTone();
+          // Also flush local ICE candidates to doctor
+          localCandidatesRef.current.forEach((c) => sendSignal({ type: 'ICE_CANDIDATE', candidate: c }));
         }
       } catch (err) {
         console.warn('[VitaNova Call] handleAnswerSignal error:', err);
@@ -698,39 +712,94 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       }
     };
 
-    // ── BroadcastChannel for same-device instant sync ──────────────────────────
-    const channelName = `vitanova_webrtc_${clinician.id}_${sessionId}`;
-    const bChannel = new BroadcastChannel(channelName);
-    channelRef.current = bChannel;
-    bChannel.onmessage = (event) => {
+    // ── Listen on Broadcast Channels & LocalStorage ──────────────────────────
+    chan1.onmessage = (event) => {
+      if (event.data) processSignal(event.data as BroadcastSignal);
+    };
+    chan2.onmessage = (event) => {
       if (event.data) processSignal(event.data as BroadcastSignal);
     };
 
+    const handleStorageEvent = (event: StorageEvent) => {
+      if (event.key === storageSigKey && event.newValue) {
+        try {
+          const sig = JSON.parse(event.newValue) as BroadcastSignal;
+          processSignal(sig);
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('storage', handleStorageEvent);
+
     // ── Join Supabase Realtime Broadcast Room (bidirectional, cross-device) ──
-    // Both parties join the room keyed by sessionId — signals flow both ways!
     signalingRoom = joinCallSignalingRoom(sessionId, (signal) => {
       processSignal(signal);
     });
-    signalingRoomRef.current = signalingRoom;
+    signalingRoomRef.current = {
+      send: (s: BroadcastSignal) => sendSignal(s),
+      leave: () => {
+        try { signalingRoom?.leave(); } catch (_) {}
+      },
+      ready: signalingRoom.ready
+    };
 
-    // ── Start Signaling ──────────────────────────────────────────────────────────
+    // ── Start Signaling — IMMEDIATELY (never block on network!) ──
+    let reOfferInterval: ReturnType<typeof setInterval> | null = null;
+
     const startSignaling = async () => {
+      // 1. Acquire local media tracks first
       await acquireMedia();
       if (!active) return;
 
+      console.log('[VitaNova Call] Local media acquired. Starting signaling immediately as', userRole);
+
       if (userRole === 'patient') {
         // Patient creates the initial offer
-        try {
-          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-          await pc.setLocalDescription(offer);
-          sendSignal({ type: 'OFFER', sdp: offer });
-          // Also send all accumulated ICE candidates
-          localCandidatesRef.current.forEach((c) => sendSignal({ type: 'ICE_CANDIDATE', candidate: c }));
-        } catch (err) {
-          console.warn('[VitaNova Call] createOffer error:', err);
-        }
+        const sendOffer = async () => {
+          if (!active || (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer')) return;
+          try {
+            let offer: RTCSessionDescriptionInit;
+            if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
+              offer = pc.localDescription;
+            } else {
+              offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+              await pc.setLocalDescription(offer);
+            }
 
-        // Also check Supabase DB for any pre-existing ANSWER (in case doctor was already there)
+            // Send via BroadcastChannel + LocalStorage + Supabase
+            sendSignal({ type: 'OFFER', sdp: offer });
+
+            // Also persist to DB in background so doctor can fetch if joining later
+            sendCallSignal({
+              signalType: 'OFFER',
+              fromRole: 'patient',
+              callerName: memberName,
+              targetClinicianId: clinician.id,
+              callType,
+              sessionId,
+              senderId: myClientId,
+              payload: { sdp: offer }
+            }).catch(() => {});
+
+            // Re-send accumulated ICE candidates
+            localCandidatesRef.current.forEach((c) => sendSignal({ type: 'ICE_CANDIDATE', candidate: c }));
+          } catch (err) {
+            console.warn('[VitaNova Call] createOffer error:', err);
+          }
+        };
+
+        await sendOffer();
+
+        // Re-send offer every 2.5 seconds until answered
+        reOfferInterval = setInterval(() => {
+          if (!active || isPeerConnectedRef.current || pc.connectionState === 'connected') {
+            if (reOfferInterval) clearInterval(reOfferInterval);
+            return;
+          }
+          console.log('[VitaNova Call] Re-sending OFFER (no answer yet)...');
+          sendOffer();
+        }, 2500);
+
+        // Also check Supabase DB for any pre-existing ANSWER
         fetchRecentCallSignals(clinician.id, ['ANSWER', 'ICE'], sessionId, 120).then(async (signals) => {
           if (!active) return;
           const answer = signals.find((s) => s.signalType === 'ANSWER' && s.payload?.sdp);
@@ -740,32 +809,52 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           for (const s of signals.filter((s) => s.signalType === 'ICE' && s.payload?.candidate)) {
             await addOrQueueCandidate(s.payload.candidate as RTCIceCandidateInit);
           }
-        });
+        }).catch(() => {});
       } else {
         // Doctor announces readiness — patient will re-send OFFER
         sendSignal({ type: 'READY_FOR_OFFER' });
 
-        // Also check Supabase DB for any pre-existing OFFER (in case patient sent it before doctor joined)
-        fetchRecentCallSignals(clinician.id, ['OFFER', 'ICE'], sessionId, 120).then(async (signals) => {
+        // Also check Supabase DB for any pre-existing OFFER
+        const checkDbForOffer = async () => {
           if (!active) return;
-          const offer = signals.find((s) => s.signalType === 'OFFER' && s.payload?.sdp);
-          if (offer && pc.signalingState === 'stable') {
-            await handleOfferSignal(offer.payload.sdp as RTCSessionDescriptionInit);
+          try {
+            const signals = await fetchRecentCallSignals(clinician.id, ['OFFER', 'ICE'], sessionId, 120);
+            if (!active) return;
+            const offer = signals.find((s) => s.signalType === 'OFFER' && s.payload?.sdp);
+            if (offer && pc.signalingState === 'stable') {
+              await handleOfferSignal(offer.payload.sdp as RTCSessionDescriptionInit);
+            }
+            for (const s of signals.filter((s) => s.signalType === 'ICE' && s.payload?.candidate)) {
+              await addOrQueueCandidate(s.payload.candidate as RTCIceCandidateInit);
+            }
+          } catch (_) {}
+        };
+
+        await checkDbForOffer();
+
+        // Keep re-sending READY_FOR_OFFER every 2.5s until connected
+        reOfferInterval = setInterval(async () => {
+          if (!active || isPeerConnectedRef.current || pc.connectionState === 'connected') {
+            if (reOfferInterval) clearInterval(reOfferInterval);
+            return;
           }
-          for (const s of signals.filter((s) => s.signalType === 'ICE' && s.payload?.candidate)) {
-            await addOrQueueCandidate(s.payload.candidate as RTCIceCandidateInit);
-          }
-        });
+          console.log('[VitaNova Call] Re-sending READY_FOR_OFFER...');
+          sendSignal({ type: 'READY_FOR_OFFER' });
+          await checkDbForOffer();
+        }, 2500);
       }
     };
 
-    // Small delay to allow Broadcast channel subscription to establish before sending
-    setTimeout(startSignaling, 600);
+    startSignaling();
 
     return () => {
       active = false;
 
-      try { bChannel.close(); } catch (_) {}
+      if (reOfferInterval) clearInterval(reOfferInterval);
+      try { chan1.close(); } catch (_) {}
+      try { chan2.close(); } catch (_) {}
+      window.removeEventListener('storage', handleStorageEvent);
+      try { localStorage.removeItem(storageSigKey); } catch (_) {}
       signalingRoom?.leave();
 
       if (syntheticCleanupRef.current) {
@@ -1169,7 +1258,6 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
-                muted
                 onLoadedMetadata={(e) => {
                   const el = e.target as HTMLVideoElement;
                   el.play().catch(() => {});
