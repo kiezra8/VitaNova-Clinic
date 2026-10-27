@@ -49,6 +49,7 @@ import {
   upsertClinician
 } from './lib/supabase';
 import { Phone, PhoneOff, Video } from 'lucide-react';
+import { startIncomingCallTone, stopIncomingCallTone } from './lib/callSounds';
 
 // Default verified Ugandan clinicians registry — Dr. Israel Kisakye as Lead Director
 export const DEFAULT_CLINICIANS: HealthcareWorker[] = [
@@ -262,16 +263,40 @@ export const App: React.FC = () => {
   // Modal for quick vitals logging
   const [showQuickVitals, setShowQuickVitals] = useState<boolean>(false);
 
+  // URL query parameter parsing for 1-click test tabs (e.g. ?role=doctor&docId=doc_israel&autoAnswer=true)
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const isDoctorFromUrl = urlParams ? urlParams.get('doctor') === 'true' || urlParams.get('role') === 'doctor' : false;
+  const docIdFromUrl = urlParams ? urlParams.get('docId') : null;
+  const autoAnswerFromUrl = urlParams ? urlParams.get('autoAnswer') === 'true' : false;
+  const sessionIdFromUrl = urlParams ? urlParams.get('sessionId') : null;
+
   // Doctor Authentication State (Supabase Auth-backed)
   const [isDoctorLoggedIn, setIsDoctorLoggedIn] = useState<boolean>(() => {
+    if (isDoctorFromUrl) return true;
     return localStorage.getItem('vitanova_doctor_logged_in') === 'true';
   });
-  const [loggedInDoctor, setLoggedInDoctor] = useState<HealthcareWorker | null>(null);
+  const [loggedInDoctor, setLoggedInDoctor] = useState<HealthcareWorker | null>(() => {
+    if (isDoctorFromUrl && docIdFromUrl) {
+      return DEFAULT_CLINICIANS.find((c) => c.id === docIdFromUrl) || DEFAULT_CLINICIANS[0];
+    } else if (isDoctorFromUrl) {
+      return DEFAULT_CLINICIANS[0];
+    }
+    return null;
+  });
   const [authLoading, setAuthLoading] = useState<boolean>(false);
 
   // Active Direct In-App Call State (Video & Audio Calls)
-  const [activeCallClinician, setActiveCallClinician] = useState<HealthcareWorker | null>(null);
-  const [callType, setCallType] = useState<'video' | 'audio' | null>(null);
+  const [activeCallClinician, setActiveCallClinician] = useState<HealthcareWorker | null>(() => {
+    if (autoAnswerFromUrl && docIdFromUrl) {
+      return DEFAULT_CLINICIANS.find((c) => c.id === docIdFromUrl) || DEFAULT_CLINICIANS[0];
+    }
+    return null;
+  });
+  const [callType, setCallType] = useState<'video' | 'audio' | null>(() => {
+    if (autoAnswerFromUrl) return 'video';
+    return null;
+  });
+  const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(sessionIdFromUrl || null);
 
   // Initialize DB, Network subscriptions, and restore Supabase Auth session
   useEffect(() => {
@@ -509,34 +534,67 @@ export const App: React.FC = () => {
     callerPhone?: string;
     clinician: HealthcareWorker;
     callType: 'video' | 'audio';
+    sessionId?: string;
   } | null>(null);
 
-  // ── Incoming call listener — Supabase Realtime only (cross-device) ──
+  // ── Incoming call listener — Supabase Realtime + BroadcastChannel (Cross-Device & Cross-Tab) ──
   useEffect(() => {
     if (!isDoctorLoggedIn) return;
 
-    const handleIncomingSignal = (callerName: string, callType: 'video' | 'audio', targetDoc: HealthcareWorker) => {
+    const handleIncomingSignal = (
+      callerName: string,
+      type: 'video' | 'audio',
+      targetDoc: HealthcareWorker,
+      callSessionId?: string
+    ) => {
       const shouldRing =
         !loggedInDoctor ||
         loggedInDoctor.id === targetDoc.id ||
         loggedInDoctor.email === targetDoc.email;
       if (shouldRing) {
-        setIncomingCall({ callerName, clinician: targetDoc, callType });
+        setIncomingCall({ callerName, clinician: targetDoc, callType: type, sessionId: callSessionId });
+        startIncomingCallTone();
       }
     };
 
-    // Subscribe to all clinician IDs so any logged-in doctor can receive
+    // 1. Same-device cross-tab BroadcastChannel listener (instant 0ms response)
+    let bChan: BroadcastChannel | null = null;
+    try {
+      bChan = new BroadcastChannel('vitanova_app_signaling');
+      bChan.onmessage = (event) => {
+        const data = event.data;
+        if (!data) return;
+        if (data.type === 'INCOMING_CALL') {
+          const doc = clinicians.find((d) => d.id === data.clinicianId) || DEFAULT_CLINICIANS.find((d) => d.id === data.clinicianId);
+          if (doc) {
+            handleIncomingSignal(data.callerName, data.callType, doc, data.sessionId);
+          }
+        } else if (data.type === 'CALL_ENDED' || data.type === 'DECLINE') {
+          stopIncomingCallTone();
+          setIncomingCall(null);
+        }
+      };
+    } catch (_) {}
+
+    // 2. Supabase Realtime listener across all clinician IDs
     const unsubscribers: Array<() => void> = [];
     clinicians.forEach((doc) => {
       const unsub = subscribeToCallSignals(doc.id, (signal) => {
         if (signal.signalType === 'INCOMING_CALL') {
-          handleIncomingSignal(signal.callerName, signal.callType, doc);
+          handleIncomingSignal(signal.callerName, signal.callType, doc, signal.sessionId);
+        } else if (signal.signalType === 'DECLINE' || signal.signalType === 'HANGUP') {
+          stopIncomingCallTone();
+          setIncomingCall(null);
         }
       });
       if (unsub) unsubscribers.push(unsub);
     });
 
     return () => {
+      stopIncomingCallTone();
+      if (bChan) {
+        try { bChan.close(); } catch (_) {}
+      }
       unsubscribers.forEach((u) => u());
     };
   }, [isDoctorLoggedIn, loggedInDoctor, clinicians]);
@@ -640,12 +698,27 @@ export const App: React.FC = () => {
     localStorage.removeItem('vitanova_logged_in_doctor_id');
   };
 
-  // Direct In-App Call Initiation — Supabase Realtime only (no BroadcastChannel)
+  // Direct In-App Call Initiation — Supabase Realtime + BroadcastChannel
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
+    const newSessionId = `vitanova_call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    setActiveCallSessionId(newSessionId);
     setActiveCallClinician(clinician);
     setCallType(type);
 
     const callerDisplayName = patient?.fullName?.trim() ? patient.fullName : 'Guest Patient';
+
+    // Broadcast across same device tabs via BroadcastChannel (instant zero-delay ring)
+    try {
+      const bChan = new BroadcastChannel('vitanova_app_signaling');
+      bChan.postMessage({
+        type: 'INCOMING_CALL',
+        callerName: callerDisplayName,
+        clinicianId: clinician.id,
+        callType: type,
+        sessionId: newSessionId
+      });
+      bChan.close();
+    } catch (_) {}
 
     // Send via Supabase Realtime — rings doctor on any device they're logged in from
     sendCallSignal({
@@ -653,9 +726,10 @@ export const App: React.FC = () => {
       fromRole: 'patient',
       callerName: callerDisplayName,
       targetClinicianId: clinician.id,
-      callType: type
+      callType: type,
+      sessionId: newSessionId
     }).catch(() => {
-      console.warn('[VitaNova] Could not reach Supabase to signal call — no BroadcastChannel fallback.');
+      console.warn('[VitaNova] Could not reach Supabase to signal call.');
     });
   };
 
@@ -886,25 +960,25 @@ export const App: React.FC = () => {
           callType={callType}
           userRole={isDoctorLoggedIn ? 'doctor' : 'patient'}
           memberName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Sarah Namubiru')}
+          sessionId={activeCallSessionId || undefined}
           onEnd={() => {
             setActiveCallClinician(null);
             setCallType(null);
+            setActiveCallSessionId(null);
           }}
         />
       )}
 
       {/* ── INCOMING CALL — WhatsApp-style full overlay ── */}
       {incomingCall && (
-        <div className="fixed inset-0 z-[10001] bg-black/70 backdrop-blur-md flex items-center justify-center">
-          <div className="bg-slate-900 rounded-[2.5rem] p-8 w-[340px] mx-4 shadow-2xl border border-slate-700/40 text-center">
+        <div className="fixed inset-0 z-[10001] bg-black/75 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200">
+          <div className="bg-slate-900 rounded-[2.5rem] p-8 w-[340px] mx-4 shadow-2xl border border-slate-700/50 text-center">
             {/* Pulsing avatar */}
             <div className="relative w-28 h-28 mx-auto mb-5">
               <span className="absolute inset-0 rounded-full bg-emerald-500/25 animate-ping" />
               <span className="absolute inset-1 rounded-full bg-emerald-500/15 animate-pulse" />
               <img
-                src={incomingCall.callType === 'video'
-                  ? (incomingCall.clinician.avatar || '/ki_ezra_avatar.jpg')
-                  : (incomingCall.clinician.avatar || '/ki_ezra_avatar.jpg')}
+                src={incomingCall.clinician.avatar || '/ki_ezra_avatar.jpg'}
                 alt={incomingCall.callerName}
                 className="relative w-full h-full rounded-full object-cover border-4 border-emerald-500 shadow-xl"
               />
@@ -913,40 +987,54 @@ export const App: React.FC = () => {
             {/* Call type badge */}
             <p className="text-[11px] font-extrabold uppercase tracking-widest text-emerald-400 mb-1 flex items-center justify-center space-x-1">
               {incomingCall.callType === 'video'
-                ? <><Video className="w-3.5 h-3.5" /><span>Video Call</span></>
-                : <><Phone className="w-3.5 h-3.5" /><span>Voice Call</span></>}
+                ? <><Video className="w-3.5 h-3.5" /><span>In-App Video Call</span></>
+                : <><Phone className="w-3.5 h-3.5" /><span>In-App Voice Call</span></>}
             </p>
 
             {/* Caller name */}
-            <h2 className="text-2xl font-bold text-white tracking-tight">{incomingCall.callerName}</h2>
-            <p className="text-sm text-slate-400 mt-0.5">VitaNova Patient</p>
+            <h2 className="text-2xl font-black text-white tracking-tight">{incomingCall.callerName}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">VitaNova Patient Line</p>
 
             {/* Answer / Decline */}
             <div className="flex items-center justify-center space-x-12 mt-10">
               {/* Decline */}
               <div className="flex flex-col items-center space-y-2">
                 <button
-                  onClick={() => setIncomingCall(null)}
+                  onClick={() => {
+                    stopIncomingCallTone();
+                    sendCallSignal({
+                      signalType: 'DECLINE',
+                      fromRole: 'doctor',
+                      callerName: loggedInDoctor?.name || 'Dr. Israel Kisakye',
+                      targetClinicianId: incomingCall.clinician.id,
+                      sessionId: incomingCall.sessionId
+                    }).catch(() => {});
+                    setIncomingCall(null);
+                  }}
                   className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 active:scale-95 flex items-center justify-center shadow-lg shadow-rose-600/30 transition-all"
+                  title="Decline Call"
                 >
                   <PhoneOff className="w-7 h-7 text-white" />
                 </button>
-                <span className="text-xs text-slate-400">Decline</span>
+                <span className="text-xs text-slate-400 font-semibold">Decline</span>
               </div>
 
               {/* Answer */}
               <div className="flex flex-col items-center space-y-2">
                 <button
                   onClick={() => {
+                    stopIncomingCallTone();
                     setActiveCallClinician(incomingCall.clinician);
                     setCallType(incomingCall.callType);
+                    setActiveCallSessionId(incomingCall.sessionId || null);
                     setIncomingCall(null);
                   }}
                   className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all"
+                  title="Answer Call"
                 >
                   <Phone className="w-7 h-7 text-white" />
                 </button>
-                <span className="text-xs text-slate-400">Answer</span>
+                <span className="text-xs text-slate-400 font-semibold">Answer</span>
               </div>
             </div>
           </div>

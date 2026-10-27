@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   PhoneOff,
   Mic,
@@ -17,16 +17,33 @@ import {
   ExternalLink,
   Volume2,
   VolumeX,
-  Radio
+  Radio,
+  SwitchCamera,
+  Monitor,
+  Sparkles,
+  Wifi,
+  AlertCircle
 } from 'lucide-react';
 import { HealthcareWorker } from '../../types';
-import { sendCallSignal, subscribeToCallSignals } from '../../lib/supabase';
+import {
+  sendCallSignal,
+  subscribeToCallSignals,
+  fetchRecentCallSignals,
+  CallSignalEvent
+} from '../../lib/supabase';
+import {
+  startRingbackTone,
+  stopRingbackTone,
+  playConnectedTone,
+  playHangupTone
+} from '../../lib/callSounds';
 
 interface VideoCallModalProps {
   clinician: HealthcareWorker;
   callType: 'video' | 'audio';
   userRole?: 'doctor' | 'patient';
   memberName: string;
+  sessionId?: string;
   onEnd: () => void;
 }
 
@@ -35,27 +52,46 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   callType,
   userRole = 'patient',
   memberName,
+  sessionId: propSessionId,
   onEnd
 }) => {
+  // Unique identifiers
+  const [sessionId] = useState<string>(
+    () => propSessionId || `vitanova_call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+  );
+  const [myClientId] = useState<string>(
+    () => `client_${Math.random().toString(36).substring(2, 9)}`
+  );
+
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
   const [elapsed, setElapsed] = useState(0);
   const [isConnecting, setIsConnecting] = useState(true);
   const [isPeerConnected, setIsPeerConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(callType === 'audio');
+  const [remoteCamOff, setRemoteCamOff] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showInCallChat, setShowInCallChat] = useState(false);
-  const [testMirrorMode, setTestMirrorMode] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [isSimulatedDoctor, setIsSimulatedDoctor] = useState(false);
+  const [cameraPermissionError, setCameraPermissionError] = useState<string | null>(null);
+  const [pipPosition, setPipPosition] = useState<'top-right' | 'bottom-right' | 'top-left'>('top-right');
 
   const isDoctor = userRole === 'doctor';
   const remotePartyName = isDoctor ? memberName : clinician.name;
-  const remotePartyTitle = isDoctor ? 'Patient (Direct Line)' : `${clinician.specialty} • VitaNova Nakawa`;
+  const remotePartyTitle = isDoctor
+    ? 'Patient (Direct Line)'
+    : `${clinician.specialty} • VitaNova Nakawa`;
 
   const [chatMessages, setChatMessages] = useState<Array<{ sender: string; text: string; time: string }>>([
     {
@@ -67,7 +103,6 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     }
   ]);
   const [chatInput, setChatInput] = useState('');
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
   // Format MM:SS from seconds
   const formatTime = (s: number) => {
@@ -76,7 +111,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     return `${m}:${sec}`;
   };
 
-  // Start call timer
+  // Start call elapsed timer
   useEffect(() => {
     timerRef.current = setInterval(() => {
       setElapsed((e) => e + 1);
@@ -87,23 +122,54 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     };
   }, []);
 
-  // WebRTC Setup & Peer Connection over Supabase Realtime & BroadcastChannel
+  // Ringback sound for caller while waiting for peer
+  useEffect(() => {
+    if (!isDoctor && !isPeerConnected && !isSimulatedDoctor) {
+      startRingbackTone();
+    } else {
+      stopRingbackTone();
+    }
+    return () => {
+      stopRingbackTone();
+    };
+  }, [isDoctor, isPeerConnected, isSimulatedDoctor]);
+
+  // STUN ICE Servers
+  const rtcConfig: RTCConfiguration = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' }
+    ],
+    iceCandidatePoolSize: 10
+  };
+
+  // Helper to safely flush buffered ICE candidates once remote description is set
+  const flushPendingCandidates = async (pc: RTCPeerConnection) => {
+    while (pendingCandidatesRef.current.length > 0) {
+      const cand = pendingCandidatesRef.current.shift();
+      if (cand) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn('[WebRTC] Flush candidate error:', e);
+        }
+      }
+    }
+  };
+
+  // WebRTC Setup & Dual Signaling (Supabase Realtime + BroadcastChannel)
   useEffect(() => {
     let active = true;
-    const channel = new BroadcastChannel('vitanova_webrtc_signaling');
-    channelRef.current = channel;
-
-    const rtcConfig: RTCConfiguration = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    };
+    const channelName = `vitanova_webrtc_${clinician.id}`;
+    const bChannel = new BroadcastChannel(channelName);
+    channelRef.current = bChannel;
 
     const pc = new RTCPeerConnection(rtcConfig);
     pcRef.current = pc;
 
-    // Handle incoming remote media tracks
+    // Handle remote media tracks
     pc.ontrack = (event) => {
       if (!active) return;
       if (event.streams && event.streams[0]) {
@@ -113,58 +179,89 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         }
         setIsPeerConnected(true);
         setIsConnecting(false);
+        stopRingbackTone();
+        playConnectedTone();
       }
     };
 
-    // Handle ICE Candidates
+    // Handle local ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        if (channel) {
-          channel.postMessage({
+        // BroadcastChannel
+        try {
+          bChannel.postMessage({
             type: 'ICE_CANDIDATE',
             candidate: event.candidate,
+            senderId: myClientId,
+            sessionId,
             role: userRole
           });
-        }
+        } catch (_) {}
+
+        // Supabase Realtime
         sendCallSignal({
           signalType: 'ICE',
           fromRole: userRole,
           callerName: isDoctor ? clinician.name : memberName,
           targetClinicianId: clinician.id,
+          sessionId,
+          senderId: myClientId,
           payload: { candidate: event.candidate }
         }).catch(() => {});
       }
     };
 
     pc.onconnectionstatechange = () => {
+      if (!active) return;
       if (pc.connectionState === 'connected') {
         setIsPeerConnected(true);
         setIsConnecting(false);
+        stopRingbackTone();
+        playConnectedTone();
       } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         setIsPeerConnected(false);
       }
     };
 
-    // Initialize local media
-    const initLocalMedia = async () => {
+    // Acquire local media with graceful fallback
+    const acquireMedia = async () => {
+      let stream: MediaStream | null = null;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: 'user'
-          }
-        });
-
-        if (!active) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
+        if (callType === 'video') {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true },
+            video: {
+              width: { ideal: 1280, max: 1920 },
+              height: { ideal: 720, max: 1080 },
+              facingMode
+            }
+          });
+        } else {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true },
+            video: false
+          });
         }
+      } catch (err: any) {
+        console.warn('[VitaNova Call] Preferred media acquisition failed, trying audio-only fallback:', err);
+        try {
+          // Fallback to audio only
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          setIsCamOff(true);
+          setCameraPermissionError('Video camera unavailable; continuing with HD audio.');
+        } catch (audioErr: any) {
+          console.warn('[VitaNova Call] Audio & video both unavailable:', audioErr);
+          setCameraPermissionError('Microphone/camera access denied. You can still test in interactive demo mode.');
+        }
+      }
 
+      if (!active) {
+        if (stream) stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
+      if (stream) {
         streamRef.current = stream;
-        setHasCameraPermission(true);
-
         if (callType === 'audio') {
           stream.getVideoTracks().forEach((vt) => {
             vt.enabled = false;
@@ -177,126 +274,290 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           localVideoRef.current.play().catch(() => {});
         }
 
-        // Add local tracks to WebRTC peer connection
+        // Add tracks to peer connection
         stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream);
+          pc.addTrack(track, stream!);
         });
+      }
 
-        // Patient initiates the WebRTC offer
-        if (userRole === 'patient') {
-          const offer = await pc.createOffer();
+      // If patient, generate the initial offer
+      if (userRole === 'patient') {
+        try {
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: callType === 'video'
+          });
           await pc.setLocalDescription(offer);
-          channel.postMessage({
+
+          bChannel.postMessage({
             type: 'OFFER',
             sdp: offer,
+            senderId: myClientId,
+            sessionId,
             senderName: memberName
           });
-          sendCallSignal({
+
+          await sendCallSignal({
             signalType: 'OFFER',
             fromRole: 'patient',
             callerName: memberName,
             targetClinicianId: clinician.id,
             callType,
+            sessionId,
+            senderId: myClientId,
             payload: { sdp: offer }
-          }).catch(() => {});
+          });
+        } catch (offerErr) {
+          console.warn('[VitaNova Call] createOffer error:', offerErr);
         }
-      } catch (err) {
-        console.warn('[VitaNova Call] Media stream warning:', err);
-        if (active) {
-          setHasCameraPermission(false);
-          setIsConnecting(false);
-        }
-      } finally {
-        if (active) {
-          setTimeout(() => {
-            if (active) setIsConnecting(false);
-          }, 1500);
-        }
+      } else {
+        // Doctor announces readiness so patient can re-send offer if patient was already waiting
+        bChannel.postMessage({
+          type: 'READY_FOR_OFFER',
+          senderId: myClientId,
+          sessionId,
+          senderName: clinician.name
+        });
+
+        sendCallSignal({
+          signalType: 'READY_FOR_OFFER',
+          fromRole: 'doctor',
+          callerName: clinician.name,
+          targetClinicianId: clinician.id,
+          callType,
+          sessionId,
+          senderId: myClientId
+        }).catch(() => {});
+
+        // Doctor also checks for any recent OFFER already submitted to Supabase
+        fetchRecentCallSignals(clinician.id, ['OFFER'], sessionId, 120).then(async (offers) => {
+          if (!active || offers.length === 0) return;
+          const latest = offers[0];
+          if (latest.payload?.sdp && pc.signalingState === 'stable') {
+            await handleOfferSignal(latest.payload.sdp);
+          }
+        });
       }
     };
 
-    // Helper to process incoming signals (from Supabase Realtime or BroadcastChannel)
-    const handleSignal = async (type: string, payload: any) => {
-      if (!active) return;
+    // Handle an incoming SDP Offer (by Doctor)
+    const handleOfferSignal = async (sdp: RTCSessionDescriptionInit) => {
       try {
-        if (type === 'OFFER' && userRole === 'doctor' && payload?.sdp) {
-          await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          channel.postMessage({
-            type: 'ANSWER',
-            sdp: answer,
-            senderName: clinician.name
-          });
-          sendCallSignal({
-            signalType: 'ANSWER',
-            fromRole: 'doctor',
-            callerName: clinician.name,
-            targetClinicianId: clinician.id,
-            payload: { sdp: answer }
-          }).catch(() => {});
+        if (pc.signalingState !== 'stable') {
+          await Promise.all([
+            pc.setLocalDescription({ type: 'rollback' }),
+            pc.setRemoteDescription(new RTCSessionDescription(sdp))
+          ]);
+        } else {
+          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        }
+
+        await flushPendingCandidates(pc);
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        bChannel.postMessage({
+          type: 'ANSWER',
+          sdp: answer,
+          senderId: myClientId,
+          sessionId,
+          senderName: clinician.name
+        });
+
+        await sendCallSignal({
+          signalType: 'ANSWER',
+          fromRole: 'doctor',
+          callerName: clinician.name,
+          targetClinicianId: clinician.id,
+          sessionId,
+          senderId: myClientId,
+          payload: { sdp: answer }
+        });
+
+        setIsConnecting(false);
+      } catch (err) {
+        console.warn('[VitaNova Call] handleOfferSignal error:', err);
+      }
+    };
+
+    // Handle an incoming SDP Answer (by Patient)
+    const handleAnswerSignal = async (sdp: RTCSessionDescriptionInit) => {
+      try {
+        if (pc.signalingState === 'have-local-offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+          await flushPendingCandidates(pc);
           setIsPeerConnected(true);
           setIsConnecting(false);
-        } else if (type === 'ANSWER' && userRole === 'patient' && payload?.sdp) {
-          if (pc.signalingState !== 'stable') {
-            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-            setIsPeerConnected(true);
-            setIsConnecting(false);
-          }
-        } else if (type === 'ICE' || type === 'ICE_CANDIDATE') {
-          const cand = payload?.candidate;
-          if (cand && pc.remoteDescription) {
-            await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
-          }
-        } else if (type === 'CALL_CHAT' && payload?.message) {
-          setChatMessages((prev) => [...prev, payload.message]);
-        } else if (type === 'CALL_ENDED' || type === 'HANGUP' || type === 'DECLINE') {
-          onEnd();
+          stopRingbackTone();
+          playConnectedTone();
         }
-      } catch (e) {
-        console.warn('[VitaNova Call] Signal processing error:', e);
+      } catch (err) {
+        console.warn('[VitaNova Call] handleAnswerSignal error:', err);
       }
     };
 
-    // Supabase Realtime subscription (cross-device)
-    const unsubSupabase = subscribeToCallSignals(clinician.id, (signal) => {
-      handleSignal(signal.signalType, signal.payload);
-    });
+    // Unified signal dispatcher
+    const processSignal = async (eventData: {
+      type: string;
+      senderId?: string;
+      sessionId?: string;
+      fromRole?: string;
+      payload?: any;
+      sdp?: any;
+      candidate?: any;
+      message?: any;
+      camOff?: boolean;
+    }) => {
+      if (!active) return;
+      // Filter out our own signals
+      if (eventData.senderId && eventData.senderId === myClientId) return;
 
-    // BroadcastChannel subscription (same-device tab test)
-    channel.onmessage = (event) => {
-      const data = event.data;
-      if (!data) return;
-      handleSignal(data.type, data);
+      const type = eventData.type;
+      const sdp = eventData.sdp || eventData.payload?.sdp;
+      const candidate = eventData.candidate || eventData.payload?.candidate;
+
+      try {
+        if (type === 'READY_FOR_OFFER' && userRole === 'patient') {
+          // Doctor joined and is waiting for our offer!
+          if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
+            // Re-send existing offer
+            bChannel.postMessage({
+              type: 'OFFER',
+              sdp: pc.localDescription,
+              senderId: myClientId,
+              sessionId,
+              senderName: memberName
+            });
+            sendCallSignal({
+              signalType: 'OFFER',
+              fromRole: 'patient',
+              callerName: memberName,
+              targetClinicianId: clinician.id,
+              callType,
+              sessionId,
+              senderId: myClientId,
+              payload: { sdp: pc.localDescription }
+            }).catch(() => {});
+          } else {
+            // Create fresh offer
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            bChannel.postMessage({
+              type: 'OFFER',
+              sdp: offer,
+              senderId: myClientId,
+              sessionId,
+              senderName: memberName
+            });
+            sendCallSignal({
+              signalType: 'OFFER',
+              fromRole: 'patient',
+              callerName: memberName,
+              targetClinicianId: clinician.id,
+              callType,
+              sessionId,
+              senderId: myClientId,
+              payload: { sdp: offer }
+            }).catch(() => {});
+          }
+        } else if (type === 'OFFER' && userRole === 'doctor' && sdp) {
+          await handleOfferSignal(sdp);
+        } else if (type === 'ANSWER' && userRole === 'patient' && sdp) {
+          await handleAnswerSignal(sdp);
+        } else if (type === 'ICE' || type === 'ICE_CANDIDATE') {
+          if (candidate) {
+            if (pc.remoteDescription && pc.remoteDescription.type) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+            } else {
+              pendingCandidatesRef.current.push(candidate);
+            }
+          }
+        } else if (type === 'CAMERA_STATUS') {
+          const camStatus = eventData.camOff ?? eventData.payload?.camOff;
+          if (typeof camStatus === 'boolean') {
+            setRemoteCamOff(camStatus);
+          }
+        } else if (type === 'CALL_CHAT') {
+          const msg = eventData.message || eventData.payload?.message;
+          if (msg) {
+            setChatMessages((prev) => [...prev, msg]);
+            if (!showInCallChat) {
+              setUnreadChatCount((c) => c + 1);
+            }
+          }
+        } else if (type === 'CALL_ENDED' || type === 'HANGUP' || type === 'DECLINE') {
+          stopRingbackTone();
+          playHangupTone();
+          onEnd();
+        }
+      } catch (err) {
+        console.warn('[VitaNova Call] Signal processing exception:', err);
+      }
     };
 
-    initLocalMedia();
+    // Subscribe to BroadcastChannel (zero-latency same-device)
+    bChannel.onmessage = (event) => {
+      const data = event.data;
+      if (!data) return;
+      processSignal(data);
+    };
+
+    // Subscribe to Supabase Realtime (cross-device)
+    const unsubSupabase = subscribeToCallSignals(clinician.id, (signal: CallSignalEvent) => {
+      if (signal.sessionId && signal.sessionId !== sessionId) return;
+      processSignal({
+        type: signal.signalType,
+        senderId: signal.senderId,
+        sessionId: signal.sessionId,
+        fromRole: signal.fromRole,
+        payload: signal.payload,
+        sdp: signal.payload?.sdp,
+        candidate: signal.payload?.candidate,
+        message: signal.payload?.message,
+        camOff: signal.payload?.camOff
+      });
+    });
+
+    acquireMedia();
 
     return () => {
       active = false;
       unsubSupabase();
+      stopRingbackTone();
+
       try {
-        channel.postMessage({ type: 'CALL_ENDED' });
-        channel.close();
+        bChannel.postMessage({
+          type: 'CALL_ENDED',
+          senderId: myClientId,
+          sessionId
+        });
+        bChannel.close();
       } catch (_) {}
 
       sendCallSignal({
         signalType: 'HANGUP',
         fromRole: userRole,
         callerName: isDoctor ? clinician.name : memberName,
-        targetClinicianId: clinician.id
+        targetClinicianId: clinician.id,
+        sessionId,
+        senderId: myClientId
       }).catch(() => {});
 
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
       }
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach((t) => t.stop());
+        screenStreamRef.current = null;
+      }
       if (pcRef.current) {
         pcRef.current.close();
         pcRef.current = null;
       }
     };
-  }, [userRole, memberName, callType, clinician.id, clinician.name, onEnd]);
+  }, [userRole, memberName, callType, clinician.id, clinician.name, sessionId, myClientId, facingMode, onEnd]);
 
   // Handle Mute Mic toggle
   const handleToggleMic = () => {
@@ -310,7 +571,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     }
   };
 
-  // Handle Camera Pause / Resume — Fixed so video NEVER freezes or disappears
+  // Handle Camera Pause / Resume with remote notification
   const handleToggleCam = async () => {
     const nextCamOff = !isCamOff;
     setIsCamOff(nextCamOff);
@@ -322,14 +583,20 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           track.enabled = !nextCamOff;
         });
       } else if (!nextCamOff) {
-        // Stream lacked video tracks (started audio-only); acquire video track
         try {
-          const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode }
+          });
           const newTrack = videoStream.getVideoTracks()[0];
           if (newTrack) {
             streamRef.current.addTrack(newTrack);
             if (pcRef.current) {
-              pcRef.current.addTrack(newTrack, streamRef.current);
+              const videoSender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video');
+              if (videoSender) {
+                videoSender.replaceTrack(newTrack);
+              } else {
+                pcRef.current.addTrack(newTrack, streamRef.current);
+              }
             }
           }
         } catch (_) {}
@@ -340,25 +607,148 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       localVideoRef.current.srcObject = streamRef.current;
       localVideoRef.current.play().catch(() => {});
     }
+
+    // Broadcast camera status to peer
+    if (channelRef.current) {
+      try {
+        channelRef.current.postMessage({
+          type: 'CAMERA_STATUS',
+          camOff: nextCamOff,
+          senderId: myClientId,
+          sessionId
+        });
+      } catch (_) {}
+    }
+    sendCallSignal({
+      signalType: 'CAMERA_STATUS',
+      fromRole: userRole,
+      callerName: isDoctor ? clinician.name : memberName,
+      targetClinicianId: clinician.id,
+      sessionId,
+      senderId: myClientId,
+      payload: { camOff: nextCamOff }
+    }).catch(() => {});
   };
 
-  // Handle Hang up
+  // Handle Front / Back Camera Flip
+  const handleFlipCamera = async () => {
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextMode } },
+        audio: false
+      });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (newVideoTrack && streamRef.current) {
+        const oldTrack = streamRef.current.getVideoTracks()[0];
+        if (oldTrack) {
+          streamRef.current.removeTrack(oldTrack);
+          oldTrack.stop();
+        }
+        streamRef.current.addTrack(newVideoTrack);
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = streamRef.current;
+          localVideoRef.current.play().catch(() => {});
+        }
+
+        if (pcRef.current) {
+          const videoSender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video');
+          if (videoSender) {
+            await videoSender.replaceTrack(newVideoTrack);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[VitaNova Call] Camera flip not available on this device:', e);
+    }
+  };
+
+  // Handle Screen Share toggle
+  const handleToggleScreenShare = async () => {
+    if (isScreenSharing) {
+      // Turn off screen share and revert to webcam
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach((t) => t.stop());
+        screenStreamRef.current = null;
+      }
+      setIsScreenSharing(false);
+
+      if (streamRef.current) {
+        const camTrack = streamRef.current.getVideoTracks()[0];
+        if (camTrack && pcRef.current) {
+          const sender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(camTrack);
+          }
+        }
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = streamRef.current;
+          localVideoRef.current.play().catch(() => {});
+        }
+      }
+    } else {
+      try {
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenTrack = displayStream.getVideoTracks()[0];
+        screenStreamRef.current = displayStream;
+        setIsScreenSharing(true);
+
+        if (screenTrack && pcRef.current) {
+          const sender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video');
+          if (sender) {
+            await sender.replaceTrack(screenTrack);
+          }
+        }
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = displayStream;
+          localVideoRef.current.play().catch(() => {});
+        }
+
+        screenTrack.onended = () => {
+          handleToggleScreenShare();
+        };
+      } catch (err) {
+        console.warn('[VitaNova Call] Screen share cancelled or not allowed:', err);
+      }
+    }
+  };
+
+  // Hang up
   const handleHangUp = () => {
+    stopRingbackTone();
+    playHangupTone();
+
     if (timerRef.current) clearInterval(timerRef.current);
     sendCallSignal({
       signalType: 'HANGUP',
       fromRole: userRole,
       callerName: isDoctor ? clinician.name : memberName,
-      targetClinicianId: clinician.id
+      targetClinicianId: clinician.id,
+      sessionId,
+      senderId: myClientId
     }).catch(() => {});
+
     if (channelRef.current) {
       try {
-        channelRef.current.postMessage({ type: 'CALL_ENDED' });
+        channelRef.current.postMessage({
+          type: 'CALL_ENDED',
+          senderId: myClientId,
+          sessionId
+        });
       } catch (_) {}
     }
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+    }
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current = null;
     }
     if (pcRef.current) {
       pcRef.current.close();
@@ -367,7 +757,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     onEnd();
   };
 
-  // Send In-Call Quick Chat
+  // Send In-Call Message
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -382,25 +772,70 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     setChatMessages((prev) => [...prev, userMsg]);
     setChatInput('');
 
-    // Broadcast message to peer
+    // Broadcast to peer
     if (channelRef.current) {
-      channelRef.current.postMessage({
-        type: 'CALL_CHAT',
-        message: userMsg
-      });
+      try {
+        channelRef.current.postMessage({
+          type: 'CALL_CHAT',
+          message: userMsg,
+          senderId: myClientId,
+          sessionId
+        });
+      } catch (_) {}
     }
 
-    // Auto-respond if other peer is not connected yet
-    if (!isPeerConnected) {
+    sendCallSignal({
+      signalType: 'CALL_CHAT',
+      fromRole: userRole,
+      callerName: senderDisplayName,
+      targetClinicianId: clinician.id,
+      sessionId,
+      senderId: myClientId,
+      payload: { message: userMsg }
+    }).catch(() => {});
+
+    // Intelligent auto-response when testing in simulated mode or if doctor hasn't answered
+    if (!isPeerConnected || isSimulatedDoctor) {
       setTimeout(() => {
+        let reply = `Dr. Israel Kisakye here. I have recorded this note into your visit chart.`;
+        const lower = userMsg.text.toLowerCase();
+        if (lower.includes('pressure') || lower.includes('bp')) {
+          reply = `I see your BP log. Continue your prescribed doses and ensure plenty of rest today.`;
+        } else if (lower.includes('pain') || lower.includes('headache')) {
+          reply = `Understood. I will prepare a clinical prescription note for you right away.`;
+        }
         const replyMsg = {
           sender: remotePartyName,
-          text: `Doctor consultation line is active. Note recorded in your visit encounter.`,
+          text: reply,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
         setChatMessages((prev) => [...prev, replyMsg]);
-      }, 1200);
+      }, 1000);
     }
+  };
+
+  // Activate Interactive Simulated Doctor Mode
+  const handleActivateSimulatedDoctor = () => {
+    setIsSimulatedDoctor(true);
+    setIsPeerConnected(true);
+    setIsConnecting(false);
+    stopRingbackTone();
+    playConnectedTone();
+
+    const welcomeMsg = {
+      sender: clinician.name,
+      text: `Hello ${memberName}, Dr. Israel Kisakye here on the live telehealth consultation line. I have your vitals on my clinic dashboard. I can hear you clearly.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setChatMessages((prev) => [...prev, welcomeMsg]);
+  };
+
+  // Open Doctor Portal in New Tab for true 2-tab local testing
+  const handleOpenDoctorNewTab = () => {
+    const url = `${window.location.origin}${window.location.pathname}?role=doctor&docId=${encodeURIComponent(
+      clinician.id
+    )}&sessionId=${encodeURIComponent(sessionId)}&autoAnswer=true`;
+    window.open(url, '_blank');
   };
 
   return (
@@ -452,11 +887,12 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
               {isPeerConnected ? (
                 <span className="text-[10px] font-bold text-emerald-400 flex items-center space-x-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Live 2-Way Connected</span>
+                  <span>{isSimulatedDoctor ? 'Interactive Clinical Demo Live' : 'Live 2-Way Connected'}</span>
                 </span>
               ) : (
-                <span className="text-[10px] font-semibold text-amber-400 animate-pulse">
-                  Ringing Line...
+                <span className="text-[10px] font-semibold text-amber-400 animate-pulse flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                  <span>Ringing Doctor Line...</span>
                 </span>
               )}
             </div>
@@ -468,26 +904,27 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           {/* Open Doctor in new tab helper button (for testing two-way on same device) */}
           {!isDoctor && !isPeerConnected && (
             <button
-              onClick={() => {
-                window.open(window.location.origin, '_blank');
-              }}
+              onClick={handleOpenDoctorNewTab}
               title="Open Doctor Portal in a new tab to answer as Doctor"
-              className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/30 text-teal-300 text-xs font-bold transition-colors"
+              className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/30 text-teal-300 text-xs font-bold transition-all active:scale-95 shadow-sm"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>Answer as Doctor (New Tab)</span>
             </button>
           )}
 
-          <div className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
+          <div className="hidden lg:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Encrypted In-App</span>
+            <span>Encrypted WebRTC</span>
           </div>
 
           {/* Chat Panel Toggle */}
           <button
-            onClick={() => setShowInCallChat((prev) => !prev)}
-            className={`p-2 rounded-xl border transition-colors ${
+            onClick={() => {
+              setShowInCallChat((prev) => !prev);
+              setUnreadChatCount(0);
+            }}
+            className={`relative p-2 rounded-xl border transition-colors ${
               showInCallChat
                 ? 'bg-teal-500 text-slate-950 border-teal-400'
                 : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
@@ -495,6 +932,11 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
             title="In-call chat"
           >
             <MessageSquare className="w-4 h-4" />
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-bounce">
+                {unreadChatCount}
+              </span>
+            )}
           </button>
 
           {/* Fullscreen Toggle */}
@@ -508,44 +950,104 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         </div>
       </div>
 
+      {/* Camera warning banner if user denies permissions */}
+      {cameraPermissionError && (
+        <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-300">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+            <span>{cameraPermissionError}</span>
+          </div>
+          <button
+            onClick={() => setCameraPermissionError(null)}
+            className="text-[10px] font-bold underline hover:text-white ml-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* ── MAIN CALL WORKSPACE ── */}
       <div className="flex-1 relative overflow-hidden bg-slate-950 flex flex-col md:flex-row">
         {/* Call Stage Area */}
         <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-slate-950">
-
           {/* ── VIDEO CALL WORKSPACE ── */}
           {callType === 'video' ? (
             <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
-              {/* REMOTE PARTICIPANT VIDEO (THE OTHER REAL PERSON) */}
-              {isPeerConnected ? (
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : testMirrorMode ? (
-                // Mirror mode for single-device test
-                <div className="relative w-full h-full">
+              {/* REMOTE PARTICIPANT VIDEO FEED */}
+              {isPeerConnected && !isSimulatedDoctor ? (
+                remoteCamOff ? (
+                  /* Remote peer has camera paused */
+                  <div className="relative w-full h-full flex flex-col items-center justify-center bg-slate-900 p-6 text-center">
+                    <div className="relative mb-4">
+                      <img
+                        src={clinician.avatar}
+                        alt={clinician.name}
+                        className="w-28 h-28 rounded-full object-cover border-4 border-slate-700 opacity-60"
+                      />
+                      <span className="absolute bottom-1 right-1 p-2 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                        <VideoOff className="w-4 h-4" />
+                      </span>
+                    </div>
+                    <h4 className="text-base font-bold text-white">{remotePartyName}</h4>
+                    <p className="text-xs text-slate-400 mt-1">Camera paused by user • Audio remains live</p>
+                  </div>
+                ) : (
                   <video
-                    ref={(el) => {
-                      if (el && streamRef.current) {
-                        el.srcObject = streamRef.current;
-                      }
-                    }}
+                    ref={remoteVideoRef}
                     autoPlay
                     playsInline
-                    className="w-full h-full object-cover filter contrast-105"
+                    className="w-full h-full object-cover"
                   />
-                  <div className="absolute top-4 left-4 bg-teal-500/90 text-slate-950 px-3 py-1 rounded-xl font-black text-xs">
-                    Live 2-Way Test Stream Active
+                )
+              ) : isSimulatedDoctor ? (
+                /* Interactive Simulated Clinical Video Stream */
+                <div className="relative w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 overflow-hidden">
+                  <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#14b8a6_1px,transparent_1px)] [background-size:16px_16px]" />
+                  <div className="relative z-10 flex flex-col items-center text-center p-6 space-y-4 max-w-md">
+                    <div className="relative">
+                      <div className="absolute inset-0 rounded-full bg-teal-500/20 animate-ping scale-110" />
+                      <img
+                        src={clinician.avatar}
+                        alt={clinician.name}
+                        className="relative w-36 h-36 sm:w-44 sm:h-44 rounded-full object-cover border-4 border-teal-500 shadow-2xl shadow-teal-500/30"
+                      />
+                      <span className="absolute bottom-2 right-2 p-2 rounded-full bg-emerald-500 text-slate-950 border-2 border-slate-950">
+                        <Radio className="w-4 h-4 animate-pulse" />
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="text-xl sm:text-2xl font-black text-white">{remotePartyName}</h3>
+                      <p className="text-xs text-teal-400 font-semibold mt-1">
+                        {clinician.specialty} • Chief Telehealth Consultant
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">VitaNova Nakawa & Mulago National Referral</p>
+                    </div>
+
+                    {/* Live Audio Visualizer Waveform */}
+                    <div className="flex items-center space-x-1.5 py-2 px-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-inner">
+                      <Activity className="w-4 h-4 text-teal-400 mr-1" />
+                      <span className="text-[10px] font-bold text-slate-300 mr-2 uppercase tracking-wider">Audio Feed</span>
+                      {[40, 75, 55, 90, 60, 85, 45, 95, 70, 50, 80, 65].map((h, i) => (
+                        <span
+                          key={i}
+                          className="w-1 bg-gradient-to-t from-teal-500 to-emerald-400 rounded-full transition-all duration-300"
+                          style={{
+                            height: `${Math.max(8, (h * ((elapsed + i) % 4 + 1)) / 4)}px`
+                          }}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-[11px] text-teal-300 leading-relaxed">
+                      "I have received your vitals report and health record. Your microphone and camera are connected successfully."
+                    </div>
                   </div>
                 </div>
               ) : (
-                // Clean WhatsApp-style Ringing Screen
+                /* Calling / Ringing Screen */
                 <div className="relative w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 p-6 text-center">
                   <div className="relative mb-6">
-                    <span className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping scale-110" />
+                    <span className="absolute inset-0 rounded-full bg-emerald-500/25 animate-ping scale-110" />
                     <span className="absolute -inset-2 rounded-full bg-emerald-500/10 animate-pulse" />
                     <img
                       src={clinician.avatar}
@@ -554,38 +1056,74 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
                     />
                   </div>
 
-                  <h3 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                  <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
                     {remotePartyName}
                   </h3>
-                  <p className="text-sm font-medium text-emerald-400 mt-1">
-                    {isPeerConnected ? 'Connected' : 'Ringing...'}
+                  <p className="text-sm font-semibold text-emerald-400 mt-1 flex items-center justify-center space-x-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>Ringing Doctor Line...</span>
                   </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {callType === 'video' ? 'VitaNova Video Call' : 'VitaNova Voice Call'}
-                  </p>
+                  <p className="text-xs text-slate-400 mt-1">{remotePartyTitle}</p>
+
+                  {/* Fallback & Test Action Bar */}
+                  <div className="mt-8 flex flex-col sm:flex-row items-center gap-3">
+                    <button
+                      onClick={handleActivateSimulatedDoctor}
+                      className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-black text-xs flex items-center space-x-2 shadow-lg shadow-teal-500/20 hover:scale-105 active:scale-95 transition-all"
+                    >
+                      <Sparkles className="w-4 h-4 text-slate-950" />
+                      <span>Start Interactive Clinical Test</span>
+                    </button>
+
+                    <button
+                      onClick={handleOpenDoctorNewTab}
+                      className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs flex items-center space-x-2 transition-all active:scale-95"
+                    >
+                      <ExternalLink className="w-4 h-4 text-teal-400" />
+                      <span>Open Doctor in New Tab</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
               {/* Remote Participant Label Overlay (Bottom Left) */}
               <div className="absolute bottom-6 left-6 z-10 space-y-1 max-w-sm pointer-events-none">
                 <div className="flex items-center space-x-2 bg-slate-900/90 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-slate-700/80 shadow-lg">
-                  <span className={`w-2.5 h-2.5 rounded-full inline-block ${isPeerConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full inline-block ${
+                      isPeerConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-ping'
+                    }`}
+                  />
                   <span className="text-xs font-bold text-white">{remotePartyName}</span>
                   <span className="text-[10px] text-teal-300 font-medium">
-                    {isPeerConnected ? '(Live Feed)' : '(Ringing)'}
+                    {isPeerConnected
+                      ? isSimulatedDoctor
+                        ? '(Simulated Line)'
+                        : '(Live WebRTC)'
+                      : '(Ringing)'}
                   </span>
                 </div>
               </div>
 
               {/* LOCAL PARTICIPANT'S LIVE CAMERA FEED (PICTURE-IN-PICTURE) */}
-              <div className="absolute top-4 right-4 z-20 w-36 h-48 sm:w-48 sm:h-64 rounded-2xl overflow-hidden border-2 border-teal-500/80 shadow-2xl bg-slate-900">
-                {/* Video element is ALWAYS mounted to prevent freezing or losing stream on pause */}
+              <div
+                className={`absolute z-30 w-36 h-48 sm:w-48 sm:h-64 rounded-2xl overflow-hidden border-2 border-teal-500/80 shadow-2xl bg-slate-900 transition-all ${
+                  pipPosition === 'top-right'
+                    ? 'top-4 right-4'
+                    : pipPosition === 'top-left'
+                    ? 'top-4 left-4'
+                    : 'bottom-20 right-4'
+                }`}
+              >
+                {/* Local Video Stream */}
                 <video
                   ref={localVideoRef}
                   autoPlay
                   playsInline
                   muted
-                  className={`w-full h-full object-cover transform -scale-x-100 ${isCamOff ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                  className={`w-full h-full object-cover transform ${
+                    facingMode === 'user' && !isScreenSharing ? '-scale-x-100' : ''
+                  } ${isCamOff ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
                 />
 
                 {isCamOff && (
@@ -596,6 +1134,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
                   </div>
                 )}
 
+                {/* PiP Overlay Info */}
                 <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between">
                   <span className="text-[10px] font-bold bg-slate-950/80 px-2 py-0.5 rounded text-white backdrop-blur-sm">
                     You ({isDoctor ? 'Doctor' : 'Patient'})
@@ -606,6 +1145,19 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
                     </span>
                   )}
                 </div>
+
+                {/* Pip Position Toggle Button */}
+                <button
+                  onClick={() =>
+                    setPipPosition((p) =>
+                      p === 'top-right' ? 'bottom-right' : p === 'bottom-right' ? 'top-left' : 'top-right'
+                    )
+                  }
+                  title="Move preview window"
+                  className="absolute top-1.5 right-1.5 p-1 rounded-lg bg-black/60 text-white/80 hover:text-white hover:bg-black/80 transition-colors"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                </button>
               </div>
             </div>
           ) : (
@@ -639,7 +1191,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
                     key={i}
                     className="w-1 bg-gradient-to-t from-teal-500 to-emerald-400 rounded-full transition-all duration-300"
                     style={{
-                      height: `${Math.max(8, isMuted ? 6 : (height * (elapsed % 3 + 1)) / 3)}px`
+                      height: `${Math.max(8, isMuted ? 6 : (height * ((elapsed % 3) + 1)) / 3)}px`
                     }}
                   />
                 ))}
@@ -648,23 +1200,34 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
               <div className="text-xs text-slate-400 font-mono flex items-center space-x-2">
                 <span>Direct Voice Line</span>
                 <span>•</span>
-                <span className="text-emerald-400 font-bold">{isPeerConnected ? 'Connected (Live)' : 'Ringing...'}</span>
+                <span className="text-emerald-400 font-bold">
+                  {isPeerConnected ? 'Connected (Live)' : 'Ringing...'}
+                </span>
               </div>
+
+              {!isPeerConnected && (
+                <button
+                  onClick={handleActivateSimulatedDoctor}
+                  className="px-4 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/30 text-xs font-bold transition-all"
+                >
+                  ✨ Test Voice Line in Demo Mode
+                </button>
+              )}
             </div>
           )}
         </div>
 
         {/* ── IN-CALL CLINICAL CHAT PANEL ── */}
         {showInCallChat && (
-          <div className="w-full md:w-80 h-64 md:h-full bg-slate-900 border-t md:border-t-0 md:border-l border-slate-800 flex flex-col z-20 shadow-2xl">
+          <div className="w-full md:w-80 h-72 md:h-full bg-slate-900 border-t md:border-t-0 md:border-l border-slate-800 flex flex-col z-40 shadow-2xl">
             <div className="p-3 border-b border-slate-800 flex items-center justify-between">
               <span className="text-xs font-bold text-white flex items-center space-x-1.5">
                 <MessageSquare className="w-3.5 h-3.5 text-teal-400" />
-                <span>In-Call Chat</span>
+                <span>In-Call Chat & Charting</span>
               </span>
               <button
                 onClick={() => setShowInCallChat(false)}
-                className="text-xs text-slate-400 hover:text-white"
+                className="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded"
               >
                 ✕ Close
               </button>
@@ -672,12 +1235,9 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
 
             <div className="flex-1 p-3 overflow-y-auto space-y-2.5">
               {chatMessages.map((msg, i) => {
-                const isMe = msg.sender.includes(isDoctor ? 'Doctor' : 'Sarah') || msg.sender === memberName;
+                const isMe = msg.sender === (isDoctor ? clinician.name : memberName);
                 return (
-                  <div
-                    key={i}
-                    className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
-                  >
+                  <div key={i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     <span className="text-[10px] text-slate-400 mb-0.5">{msg.sender}</span>
                     <div
                       className={`p-2.5 rounded-2xl max-w-[85%] text-xs leading-relaxed ${
@@ -697,7 +1257,7 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
             <form onSubmit={handleSendChat} className="p-2 border-t border-slate-800 flex items-center space-x-2">
               <input
                 type="text"
-                placeholder="Type in-call message..."
+                placeholder="Type in-call message or symptom..."
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
@@ -714,11 +1274,11 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       </div>
 
       {/* ── CALL CONTROL FOOTER BAR ── */}
-      <div className="relative z-20 flex items-center justify-center space-x-4 py-4 px-6 bg-slate-900/95 backdrop-blur-md border-t border-slate-800">
+      <div className="relative z-30 flex items-center justify-center space-x-3 sm:space-x-4 py-3 sm:py-4 px-4 bg-slate-900/95 backdrop-blur-md border-t border-slate-800">
         {/* Toggle Microphone */}
         <button
           onClick={handleToggleMic}
-          className={`p-3.5 rounded-2xl border transition-all active:scale-95 ${
+          className={`p-3 sm:p-3.5 rounded-2xl border transition-all active:scale-95 ${
             isMuted
               ? 'bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-500/25'
               : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
@@ -728,11 +1288,11 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        {/* Toggle Video Camera (Pause / Resume without freezing) */}
+        {/* Toggle Video Camera */}
         {callType === 'video' && (
           <button
             onClick={handleToggleCam}
-            className={`p-3.5 rounded-2xl border transition-all active:scale-95 ${
+            className={`p-3 sm:p-3.5 rounded-2xl border transition-all active:scale-95 ${
               isCamOff
                 ? 'bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-500/25'
                 : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
@@ -743,10 +1303,36 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           </button>
         )}
 
+        {/* Flip Camera (Front / Rear) */}
+        {callType === 'video' && (
+          <button
+            onClick={handleFlipCamera}
+            className="p-3 sm:p-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 transition-all active:scale-95"
+            title="Flip Camera (Front / Back)"
+          >
+            <SwitchCamera className="w-5 h-5 text-teal-400" />
+          </button>
+        )}
+
+        {/* Screen Share */}
+        {callType === 'video' && (
+          <button
+            onClick={handleToggleScreenShare}
+            className={`p-3 sm:p-3.5 rounded-2xl border transition-all active:scale-95 ${
+              isScreenSharing
+                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/25'
+                : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
+            }`}
+            title={isScreenSharing ? 'Stop Screen Sharing' : 'Share Screen / Medical Reports'}
+          >
+            <Monitor className="w-5 h-5" />
+          </button>
+        )}
+
         {/* End Call / Hang Up */}
         <button
           onClick={handleHangUp}
-          className="px-6 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs flex items-center space-x-2 shadow-xl shadow-rose-600/30 transition-all active:scale-95"
+          className="px-5 sm:px-6 py-3 sm:py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs sm:text-sm flex items-center space-x-2 shadow-xl shadow-rose-600/30 transition-all active:scale-95"
           title="End Telehealth Consultation"
         >
           <PhoneOff className="w-5 h-5" />

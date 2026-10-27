@@ -500,14 +500,48 @@ export const fetchEducationArticles = async () => {
  * Send a call signal to a specific doctor.
  * Inserts a row into call_signals; the doctor's subscribed Realtime listener fires.
  */
+export interface CallSignalPayload {
+  sessionId?: string;
+  senderId?: string;
+  fromRole?: 'patient' | 'doctor';
+  sdp?: any;
+  candidate?: any;
+  message?: any;
+  camOff?: boolean;
+  [key: string]: unknown;
+}
+
+export interface CallSignalEvent {
+  signalType: string;
+  fromRole: 'patient' | 'doctor' | string;
+  callerName: string;
+  callType: 'video' | 'audio';
+  sessionId?: string;
+  senderId?: string;
+  payload: CallSignalPayload;
+}
+
+/**
+ * Send a call signal to a specific doctor or patient.
+ * Inserts a row into call_signals; subscribers receive Realtime push.
+ */
 export const sendCallSignal = async (opts: {
-  signalType: 'INCOMING_CALL' | 'OFFER' | 'ANSWER' | 'ICE' | 'DECLINE' | 'HANGUP';
+  signalType: 'INCOMING_CALL' | 'OFFER' | 'ANSWER' | 'ICE' | 'DECLINE' | 'HANGUP' | 'READY_FOR_OFFER' | 'CAMERA_STATUS' | 'CALL_CHAT' | string;
   fromRole: 'patient' | 'doctor';
   callerName: string;
   targetClinicianId: string;
   callType?: 'video' | 'audio';
-  payload?: Record<string, unknown>;
+  sessionId?: string;
+  senderId?: string;
+  payload?: CallSignalPayload;
 }) => {
+  const mergedPayload: CallSignalPayload = {
+    ...(opts.payload || {}),
+    sessionId: opts.sessionId,
+    senderId: opts.senderId,
+    fromRole: opts.fromRole
+  };
+
   const { data, error } = await supabase
     .from('call_signals')
     .insert({
@@ -516,7 +550,7 @@ export const sendCallSignal = async (opts: {
       caller_name: opts.callerName,
       target_clinician_id: opts.targetClinicianId,
       call_type: opts.callType || 'video',
-      payload: opts.payload || {}
+      payload: mergedPayload
     })
     .select()
     .single();
@@ -529,20 +563,62 @@ export const sendCallSignal = async (opts: {
 };
 
 /**
+ * Fetch recent call signals (e.g. pending OFFER or ANSWER sent in the last 2 minutes).
+ * Used when a doctor or patient opens the call modal to catch any signals sent prior to joining.
+ */
+export const fetchRecentCallSignals = async (
+  clinicianId: string,
+  signalTypes: string[],
+  sessionId?: string,
+  maxAgeSeconds = 120
+): Promise<CallSignalEvent[]> => {
+  try {
+    const cutoff = new Date(Date.now() - maxAgeSeconds * 1000).toISOString();
+    let query = supabase
+      .from('call_signals')
+      .select('*')
+      .eq('target_clinician_id', clinicianId)
+      .in('signal_type', signalTypes)
+      .gt('created_at', cutoff)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const { data, error } = await query;
+    if (error || !data) return [];
+
+    const results: CallSignalEvent[] = [];
+    for (const row of data) {
+      const p = (row.payload as CallSignalPayload) || {};
+      if (sessionId && p.sessionId && p.sessionId !== sessionId) {
+        continue;
+      }
+      results.push({
+        signalType: row.signal_type,
+        fromRole: row.from_role || p.fromRole || 'patient',
+        callerName: row.caller_name,
+        callType: (row.call_type as 'video' | 'audio') || 'video',
+        sessionId: p.sessionId,
+        senderId: p.senderId,
+        payload: p
+      });
+    }
+    return results;
+  } catch (err) {
+    console.warn('[VitaNova] fetchRecentCallSignals error:', err);
+    return [];
+  }
+};
+
+/**
  * Subscribe to incoming call signals for a specific doctor ID.
- * Fires callback in real-time when a patient calls — works across ANY device.
+ * Fires callback in real-time when a patient or doctor signals — works across ANY device.
  */
 export const subscribeToCallSignals = (
   clinicianId: string,
-  onSignal: (signal: {
-    signalType: string;
-    callerName: string;
-    callType: 'video' | 'audio';
-    payload: Record<string, unknown>;
-  }) => void
+  onSignal: (signal: CallSignalEvent) => void
 ): (() => void) => {
   const channel = supabase
-    .channel(`call_signals_${clinicianId}`)
+    .channel(`call_signals_${clinicianId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`)
     .on(
       'postgres_changes',
       {
@@ -553,11 +629,15 @@ export const subscribeToCallSignals = (
       },
       (payload) => {
         const row = payload.new as Record<string, any>;
+        const p = (row.payload as CallSignalPayload) || {};
         onSignal({
           signalType: row.signal_type,
+          fromRole: row.from_role || p.fromRole || 'patient',
           callerName: row.caller_name,
           callType: (row.call_type as 'video' | 'audio') || 'video',
-          payload: (row.payload as Record<string, unknown>) || {}
+          sessionId: p.sessionId,
+          senderId: p.senderId,
+          payload: p
         });
       }
     )
@@ -573,3 +653,4 @@ export const cleanupStaleCallSignals = async () => {
   const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
   await supabase.from('call_signals').delete().lt('created_at', cutoff);
 };
+
