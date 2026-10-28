@@ -396,6 +396,169 @@ app.post('/api/emergency/dispatch', (req: Request, res: Response) => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Real-Time WebRTC Call Signaling Relay (Server-Sent Events + HTTP POST)
+// Enables zero-delay cross-browser, cross-window (normal vs incognito),
+// and cross-device video & audio call signaling without external dependencies.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface QueuedCallSignal {
+  sigId: string;
+  sessionId: string;
+  senderId: string;
+  type: string;
+  payload: any;
+  timestamp: number;
+}
+
+const sseSessionClients = new Map<string, Set<Response>>();
+const sseGlobalClients = new Set<Response>();
+const recentCallSignals = new Map<string, QueuedCallSignal[]>();
+
+function sendSseEvent(res: Response, eventName: string, data: any) {
+  try {
+    res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
+  } catch (_) {}
+}
+
+// 8. Call Signaling: Post a signal (OFFER, ANSWER, ICE, INCOMING_CALL, DECLINE, HANGUP)
+app.post('/api/calls/signal', (req: Request, res: Response) => {
+  const signal = req.body || {};
+  const { sessionId, type, senderId } = signal;
+
+  const queuedSignal: QueuedCallSignal = {
+    sigId: signal.sigId || `sig_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+    sessionId: sessionId || 'global',
+    senderId: senderId || 'anonymous',
+    type: type || 'UNKNOWN',
+    payload: signal,
+    timestamp: Date.now()
+  };
+
+  // Buffer signal in session history (last 100 signals)
+  if (sessionId) {
+    if (!recentCallSignals.has(sessionId)) {
+      recentCallSignals.set(sessionId, []);
+    }
+    const buf = recentCallSignals.get(sessionId)!;
+    buf.push(queuedSignal);
+    if (buf.length > 100) buf.shift();
+
+    // Broadcast to all active clients in this session room
+    const clients = sseSessionClients.get(sessionId);
+    if (clients) {
+      for (const client of clients) {
+        sendSseEvent(client, 'signal', signal);
+      }
+    }
+  }
+
+  // If this is an app-level call signal (INCOMING_CALL, DECLINE, HANGUP), broadcast to global listeners
+  if (type === 'INCOMING_CALL' || type === 'DECLINE' || type === 'HANGUP' || type === 'CALL_ENDED') {
+    for (const client of sseGlobalClients) {
+      sendSseEvent(client, 'app_signal', signal);
+    }
+  }
+
+  res.json({ ok: true, sigId: queuedSignal.sigId });
+});
+
+// 9. Call Signaling: Subscribe to session SSE stream
+app.get('/api/calls/stream/:sessionId', (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  if (!sseSessionClients.has(sessionId)) {
+    sseSessionClients.set(sessionId, new Set());
+  }
+  const clients = sseSessionClients.get(sessionId)!;
+  clients.add(res);
+
+  // Send initial keep-alive ping
+  sendSseEvent(res, 'connected', { sessionId, timestamp: Date.now() });
+
+  // Immediately replay any recent signals buffered for this session (e.g. pending OFFER/ANSWER)
+  const history = recentCallSignals.get(sessionId);
+  if (history && history.length > 0) {
+    for (const sig of history) {
+      if (Date.now() - sig.timestamp < 60000) {
+        sendSseEvent(res, 'signal', sig.payload);
+      }
+    }
+  }
+
+  const pingTimer = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch (_) {
+      clearInterval(pingTimer);
+    }
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(pingTimer);
+    clients.delete(res);
+    if (clients.size === 0) {
+      sseSessionClients.delete(sessionId);
+    }
+  });
+});
+
+// 10. Call Signaling: Subscribe to global incoming call SSE stream (rings doctors on any browser/device)
+app.get('/api/calls/stream-global', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  sseGlobalClients.add(res);
+  sendSseEvent(res, 'connected', { status: 'listening_incoming_calls' });
+
+  const pingTimer = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch (_) {
+      clearInterval(pingTimer);
+    }
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(pingTimer);
+    sseGlobalClients.delete(res);
+  });
+});
+
+// 11. Call Signaling: Fallback HTTP polling for signals
+app.get('/api/calls/poll/:sessionId', (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const since = Number(req.query.since) || 0;
+  const excludeSender = req.query.excludeSender as string | undefined;
+
+  const history = recentCallSignals.get(sessionId) || [];
+  const matching = history
+    .filter((s) => s.timestamp > since && (!excludeSender || s.senderId !== excludeSender))
+    .map((s) => s.payload);
+
+  res.json({ ok: true, signals: matching, serverTime: Date.now() });
+});
+
+// Clean up stale session signals every 60s
+setInterval(() => {
+  const cutoff = Date.now() - 120000;
+  for (const [sId, signals] of recentCallSignals.entries()) {
+    const fresh = signals.filter((s) => s.timestamp > cutoff);
+    if (fresh.length === 0) {
+      recentCallSignals.delete(sId);
+    } else {
+      recentCallSignals.set(sId, fresh);
+    }
+  }
+}, 60000);
+
 app.listen(PORT, () => {
   console.log(`[VitaNova Server] Healthcare API server listening on port ${PORT}`);
 });

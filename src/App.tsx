@@ -649,10 +649,32 @@ export const App: React.FC = () => {
       if (unsub) unsubscribers.push(unsub);
     });
 
+    // 3. Local Express SSE stream (cross-browser, incognito, and cross-device ring listener)
+    let sseGlobal: EventSource | null = null;
+    try {
+      sseGlobal = new EventSource('/api/calls/stream-global');
+      sseGlobal.addEventListener('app_signal', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (!data) return;
+          if (data.type === 'INCOMING_CALL') {
+            const doc = uniqueDocMap.get(data.clinicianId) || DEFAULT_CLINICIANS[0];
+            handleIncomingSignal(data.callerName, data.callType, doc, data.sessionId);
+          } else if (data.type === 'CALL_ENDED' || data.type === 'DECLINE' || data.type === 'HANGUP') {
+            stopIncomingCallTone();
+            setIncomingCall(null);
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+
     return () => {
       stopIncomingCallTone();
       if (bChan) {
         try { bChan.close(); } catch (_) {}
+      }
+      if (sseGlobal) {
+        try { sseGlobal.close(); } catch (_) {}
       }
       unsubscribers.forEach((u) => u());
     };
@@ -847,7 +869,25 @@ export const App: React.FC = () => {
         callType: type,
         sessionId: newSessionId
       });
-      bChan.close();
+      setTimeout(() => {
+        try { bChan.close(); } catch (_) {}
+      }, 2000);
+    } catch (_) {}
+
+    // Send to local server signaling relay (rings doctors in Incognito, Edge, or separate devices on WiFi)
+    try {
+      fetch('/api/calls/signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'INCOMING_CALL',
+          callerName: callerDisplayName,
+          clinicianId: clinician.id,
+          callType: type,
+          sessionId: newSessionId,
+          targetClinicianId: clinician.id
+        })
+      }).catch(() => {});
     } catch (_) {}
 
     // Send via Supabase Realtime — rings doctor on any device they're logged in from

@@ -428,13 +428,24 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       // Register our own signal ID so we never process echoes
       handledSignalIdsRef.current.add(sigId);
 
-      // 1. Supabase Realtime broadcast (cross-device)
-      try { signalingRoom?.send(full); } catch (_) {}
+      // 1. Local Express Server HTTP Relay (cross-browser, incognito, and cross-device!)
+      try {
+        fetch('/api/calls/signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(full)
+        }).catch(() => {});
+      } catch (_) {}
+
       // 2. BroadcastChannel (cross-tab same browser engine)
       try { chan1.postMessage(full); } catch (_) {}
       try { chan2.postMessage(full); } catch (_) {}
+
       // 3. Storage event (cross-tab/window 100% reliable local fallback)
       try { localStorage.setItem(storageSigKey, JSON.stringify({ ...full, _ts: Date.now() + Math.random() })); } catch (_) {}
+
+      // 4. Supabase Realtime broadcast (cross-device)
+      try { signalingRoom?.send(full); } catch (_) {}
     };
 
     // Safely add or queue candidate
@@ -752,6 +763,41 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     };
     window.addEventListener('storage', handleStorageEvent);
 
+    // ── Listen on Local Server SSE Stream (cross-browser, incognito, and cross-device) ──
+    let sseSource: EventSource | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    let lastPollTime = Date.now() - 30000;
+
+    try {
+      sseSource = new EventSource(`/api/calls/stream/${encodeURIComponent(sessionId)}`);
+      sseSource.addEventListener('signal', (event) => {
+        try {
+          const sig = JSON.parse(event.data) as BroadcastSignal;
+          processSignal(sig);
+        } catch (_) {}
+      });
+    } catch (_) {}
+
+    // Fallback fast HTTP polling (checks every 1200ms while handshake is active)
+    pollInterval = setInterval(async () => {
+      if (!active || (hasAnsweredRef.current && isPeerConnectedRef.current)) {
+        if (pollInterval) clearInterval(pollInterval);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/calls/poll/${encodeURIComponent(sessionId)}?since=${lastPollTime}&excludeSender=${encodeURIComponent(myClientId)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.signals && json.signals.length > 0) {
+            for (const sig of json.signals) {
+              processSignal(sig as BroadcastSignal);
+            }
+          }
+          if (json.serverTime) lastPollTime = json.serverTime;
+        }
+      } catch (_) {}
+    }, 1200);
+
     // ── Join Supabase Realtime Broadcast Room (bidirectional, cross-device) ──
     signalingRoom = joinCallSignalingRoom(sessionId, (signal) => {
       processSignal(signal);
@@ -876,6 +922,10 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       active = false;
 
       if (reOfferInterval) clearInterval(reOfferInterval);
+      if (pollInterval) clearInterval(pollInterval);
+      if (sseSource) {
+        try { sseSource.close(); } catch (_) {}
+      }
       try { chan1.close(); } catch (_) {}
       try { chan2.close(); } catch (_) {}
       window.removeEventListener('storage', handleStorageEvent);
