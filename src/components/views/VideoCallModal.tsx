@@ -18,7 +18,8 @@ import {
   SwitchCamera,
   Monitor,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Volume2
 } from 'lucide-react';
 import { HealthcareWorker } from '../../types';
 import {
@@ -271,6 +272,9 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   const [elapsed, setElapsed] = useState(0);
   const [isPeerConnected, setIsPeerConnected] = useState(false);
   const isPeerConnectedRef = useRef(false);
+  const hasAnsweredRef = useRef(false);
+  const handledSignalIdsRef = useRef<Set<string>>(new Set());
+  const [isAudioAutoplayBlocked, setIsAudioAutoplayBlocked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(callType === 'audio');
   const [remoteCamOff, setRemoteCamOff] = useState(false);
@@ -377,19 +381,21 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     }
   }, [localStream]);
 
-  // Bind remote stream to video & dedicated audio element whenever it changes
+  // Bind remote stream to video & dedicated audio element — ONLY if stream object actually changed!
   useEffect(() => {
     if (remoteStream) {
-      if (remoteVideoRef.current) {
+      if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStream) {
         remoteVideoRef.current.srcObject = remoteStream;
         remoteVideoRef.current.play().catch(() => {});
       }
-      if (remoteAudioRef.current) {
+      if (remoteAudioRef.current && remoteAudioRef.current.srcObject !== remoteStream) {
         remoteAudioRef.current.srcObject = remoteStream;
-        remoteAudioRef.current.play().catch(() => {});
+        remoteAudioRef.current.play().catch(() => {
+          setIsAudioAutoplayBlocked(true);
+        });
       }
     }
-  }, [remoteStream, isPeerConnected]);
+  }, [remoteStream]);
 
   // Main WebRTC & Dual Signaling (Runs ONCE per sessionId — never torn down on re-render!)
   useEffect(() => {
@@ -410,13 +416,18 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     const storageSigKey = `vitanova_sig_${sessionId}`;
 
     const sendSignal = (signal: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; camOff?: boolean; message?: any; [k: string]: unknown }) => {
+      const sigId = `sig_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       const full: BroadcastSignal = {
         ...signal,
+        sigId,
         type: signal.type,
         senderId: myClientId,
         sessionId,
         role: userRole
       };
+      // Register our own signal ID so we never process echoes
+      handledSignalIdsRef.current.add(sigId);
+
       // 1. Supabase Realtime broadcast (cross-device)
       try { signalingRoom?.send(full); } catch (_) {}
       // 2. BroadcastChannel (cross-tab same browser engine)
@@ -464,51 +475,39 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       if (!active) return;
       console.log('[WebRTC] Remote track arrived:', event.track.kind, event.track.readyState);
 
-      // Always use event.streams[0] first (preferred), fallback to adding individual track
-      const incomingStream = event.streams && event.streams[0]
+      const targetStream = (event.streams && event.streams[0])
         ? event.streams[0]
-        : null;
+        : remoteMediaStreamRef.current;
 
-      if (incomingStream) {
-        incomingStream.getTracks().forEach((track) => {
-          track.enabled = true;
-          if (!remoteMediaStreamRef.current.getTracks().some((t) => t.id === track.id)) {
-            remoteMediaStreamRef.current.addTrack(track);
-          }
-        });
-      } else {
-        event.track.enabled = true;
+      if (!event.streams || !event.streams[0]) {
         if (!remoteMediaStreamRef.current.getTracks().some((t) => t.id === event.track.id)) {
           remoteMediaStreamRef.current.addTrack(event.track);
         }
       }
 
-      // When a track becomes active/live, refresh the stream binding
-      event.track.onunmute = () => {
-        if (!active) return;
-        const composite = new MediaStream(remoteMediaStreamRef.current.getTracks());
-        setRemoteStream(composite);
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = composite;
+      event.track.enabled = true;
+      setRemoteStream(targetStream);
+
+      // Stable attach to video & audio elements (do not recreate decoder if already bound)
+      const attachElements = () => {
+        if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== targetStream) {
+          remoteVideoRef.current.srcObject = targetStream;
           remoteVideoRef.current.play().catch(() => {});
         }
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = composite;
-          remoteAudioRef.current.play().catch(() => {});
+        if (remoteAudioRef.current && remoteAudioRef.current.srcObject !== targetStream) {
+          remoteAudioRef.current.srcObject = targetStream;
+          remoteAudioRef.current.play().catch((err) => {
+            console.warn('[WebRTC] Autoplay restriction on audio:', err);
+            setIsAudioAutoplayBlocked(true);
+          });
         }
       };
 
-      const composite = new MediaStream(remoteMediaStreamRef.current.getTracks());
-      setRemoteStream(composite);
-
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = composite;
-        remoteVideoRef.current.play().catch((err) => console.warn('[WebRTC] remoteVideo play error:', err));
-      }
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = composite;
-        remoteAudioRef.current.play().catch((err) => console.warn('[WebRTC] remoteAudio play error:', err));
-      }
+      attachElements();
+      event.track.onunmute = () => {
+        if (!active) return;
+        attachElements();
+      };
 
       isPeerConnectedRef.current = true;
       setIsPeerConnected(true);
@@ -617,11 +616,21 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     };
 
     // Handle incoming SDP Offer (received by Doctor)
+    // Handle incoming SDP Offer (received by Doctor)
     const handleOfferSignal = async (sdp: RTCSessionDescriptionInit) => {
       try {
         if (!sdp || !sdp.sdp) return;
-        if (lastHandledOfferSdpRef.current === sdp.sdp && pc.signalingState !== 'stable') return;
+        // Never process if we already handled this exact offer, or if session is already active
+        if (lastHandledOfferSdpRef.current === sdp.sdp) return;
+        if (hasAnsweredRef.current && pc.signalingState === 'stable') return;
         lastHandledOfferSdpRef.current = sdp.sdp;
+        hasAnsweredRef.current = true;
+
+        // Stop doctor's ready-for-offer interval immediately!
+        if (reOfferInterval) {
+          clearInterval(reOfferInterval);
+          reOfferInterval = null;
+        }
 
         // Wait for our local tracks to be added before creating answer
         await localTracksReadyPromise;
@@ -652,6 +661,13 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     const handleAnswerSignal = async (sdp: RTCSessionDescriptionInit) => {
       try {
         if (pc.signalingState === 'have-local-offer') {
+          hasAnsweredRef.current = true;
+          // Stop patient's re-offer interval immediately!
+          if (reOfferInterval) {
+            clearInterval(reOfferInterval);
+            reOfferInterval = null;
+          }
+
           await pc.setRemoteDescription(new RTCSessionDescription(sdp));
           await flushPendingCandidates();
           isPeerConnectedRef.current = true;
@@ -674,7 +690,14 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       // Ignore signals from a different session
       if (data.sessionId && data.sessionId !== sessionId) return;
 
-      console.log('[WebRTC] Received signal:', data.type, 'from', data.role);
+      // Deduplicate signals across all transport channels (chan1, chan2, localStorage, supabase)
+      const sigKey = (data as any).sigId || `${data.type}_${data.senderId}_${data.candidate ? data.candidate.candidate : (data.sdp ? data.sdp.sdp?.slice(0, 40) : '')}`;
+      if (handledSignalIdsRef.current.has(sigKey)) {
+        return; // Already processed, ignore duplicate!
+      }
+      handledSignalIdsRef.current.add(sigKey);
+
+      console.log('[WebRTC] Processing signal:', data.type, 'from', data.role);
 
       try {
         if (data.type === 'OFFER' && userRole === 'doctor' && data.sdp) {
@@ -684,15 +707,14 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         } else if (data.type === 'ICE_CANDIDATE' && data.candidate) {
           await addOrQueueCandidate(data.candidate);
         } else if (data.type === 'READY_FOR_OFFER' && userRole === 'patient') {
-          // Doctor is ready — resend our offer or create a new one
+          // If already answered or connected, NEVER restart offer!
+          if (hasAnsweredRef.current || isPeerConnectedRef.current || pc.signalingState !== 'have-local-offer') {
+            return;
+          }
           await localTracksReadyPromise;
-          if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
+          if (pc.localDescription) {
             sendSignal({ type: 'OFFER', sdp: pc.localDescription });
             localCandidatesRef.current.forEach((c) => sendSignal({ type: 'ICE_CANDIDATE', candidate: c }));
-          } else if (pc.signalingState === 'stable') {
-            const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-            await pc.setLocalDescription(offer);
-            sendSignal({ type: 'OFFER', sdp: offer });
           }
         } else if (data.type === 'CAMERA_STATUS' && typeof data.camOff === 'boolean') {
           setRemoteCamOff(data.camOff);
@@ -789,19 +811,22 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
 
         await sendOffer();
 
-        // Re-send offer every 2.5 seconds until answered
+        // Re-send existing offer every 3s ONLY while waiting for answer (NEVER re-create offer!)
         reOfferInterval = setInterval(() => {
-          if (!active || isPeerConnectedRef.current || pc.connectionState === 'connected') {
+          if (!active || hasAnsweredRef.current || isPeerConnectedRef.current || pc.connectionState === 'connected') {
             if (reOfferInterval) clearInterval(reOfferInterval);
             return;
           }
-          console.log('[VitaNova Call] Re-sending OFFER (no answer yet)...');
-          sendOffer();
-        }, 2500);
+          if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
+            console.log('[VitaNova Call] Re-sending existing OFFER (waiting for answer)...');
+            sendSignal({ type: 'OFFER', sdp: pc.localDescription });
+            localCandidatesRef.current.forEach((c) => sendSignal({ type: 'ICE_CANDIDATE', candidate: c }));
+          }
+        }, 3000);
 
         // Also check Supabase DB for any pre-existing ANSWER
         fetchRecentCallSignals(clinician.id, ['ANSWER', 'ICE'], sessionId, 120).then(async (signals) => {
-          if (!active) return;
+          if (!active || hasAnsweredRef.current) return;
           const answer = signals.find((s) => s.signalType === 'ANSWER' && s.payload?.sdp);
           if (answer && pc.signalingState === 'have-local-offer') {
             await handleAnswerSignal(answer.payload.sdp as RTCSessionDescriptionInit);
@@ -816,10 +841,10 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
 
         // Also check Supabase DB for any pre-existing OFFER
         const checkDbForOffer = async () => {
-          if (!active) return;
+          if (!active || hasAnsweredRef.current) return;
           try {
             const signals = await fetchRecentCallSignals(clinician.id, ['OFFER', 'ICE'], sessionId, 120);
-            if (!active) return;
+            if (!active || hasAnsweredRef.current) return;
             const offer = signals.find((s) => s.signalType === 'OFFER' && s.payload?.sdp);
             if (offer && pc.signalingState === 'stable') {
               await handleOfferSignal(offer.payload.sdp as RTCSessionDescriptionInit);
@@ -832,16 +857,16 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
 
         await checkDbForOffer();
 
-        // Keep re-sending READY_FOR_OFFER every 2.5s until connected
+        // Keep re-sending READY_FOR_OFFER every 3s until offer answered
         reOfferInterval = setInterval(async () => {
-          if (!active || isPeerConnectedRef.current || pc.connectionState === 'connected') {
+          if (!active || hasAnsweredRef.current || isPeerConnectedRef.current || pc.connectionState === 'connected') {
             if (reOfferInterval) clearInterval(reOfferInterval);
             return;
           }
           console.log('[VitaNova Call] Re-sending READY_FOR_OFFER...');
           sendSignal({ type: 'READY_FOR_OFFER' });
           await checkDbForOffer();
-        }, 2500);
+        }, 3000);
       }
     };
 
@@ -1220,7 +1245,34 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
       )}
 
       {/* ── MAIN CALL WORKSPACE ── */}
-      <div className="flex-1 relative overflow-hidden bg-slate-950 flex flex-col md:flex-row">
+      <div
+        className="flex-1 relative overflow-hidden bg-slate-950 flex flex-col md:flex-row"
+        onClick={() => {
+          if (isAudioAutoplayBlocked) {
+            if (remoteAudioRef.current) remoteAudioRef.current.play().catch(() => {});
+            if (remoteVideoRef.current) remoteVideoRef.current.play().catch(() => {});
+            setIsAudioAutoplayBlocked(false);
+          }
+        }}
+      >
+        {/* Floating Tap to Enable Audio Banner if browser blocked autoplay */}
+        {isAudioAutoplayBlocked && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (remoteAudioRef.current) remoteAudioRef.current.play().catch(() => {});
+                if (remoteVideoRef.current) remoteVideoRef.current.play().catch(() => {});
+                setIsAudioAutoplayBlocked(false);
+              }}
+              className="px-5 py-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center space-x-2 shadow-2xl shadow-emerald-500/40 border border-emerald-400"
+            >
+              <Volume2 className="w-4 h-4 animate-pulse" />
+              <span>Click to Enable Voice / Audio</span>
+            </button>
+          </div>
+        )}
+
         {/* Call Stage Area */}
         <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-slate-950">
           {/* ── VIDEO CALL WORKSPACE ── */}
