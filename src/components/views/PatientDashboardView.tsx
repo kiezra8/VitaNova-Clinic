@@ -420,37 +420,45 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
           {alliedWorkers.map((worker) => (
             <div
               key={worker.id}
-              className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-teal-500/30 transition-all p-4 flex flex-col justify-between space-y-3.5"
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-teal-500/30 transition-all p-3.5 flex flex-col items-center justify-between space-y-3"
             >
-              <div className="flex items-start space-x-3.5">
+              {/* Profile Image — Same large aspect-[4/3] card format as doctors */}
+              <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-inner group">
                 <img
                   src={worker.avatar}
                   alt={worker.name}
-                  className="w-16 h-16 rounded-2xl object-cover border border-slate-200 shadow-sm shrink-0"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-extrabold text-slate-900 truncate">
-                    {worker.name}
-                  </h3>
-                  <div className="mt-1">
-                    <span className="inline-block text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-200">
-                      {worker.profession}
+
+                {/* Profession Badge */}
+                <div className="absolute top-2.5 right-2.5 z-10">
+                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-900/85 backdrop-blur-sm text-teal-300 border border-teal-500/30 shadow-md">
+                    {worker.profession}
+                  </span>
+                </div>
+
+                {/* Name & Active Status Indicator Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-transparent flex items-end p-2.5">
+                  <div className="flex items-center space-x-1.5 min-w-0 w-full">
+                    <span className="w-2.5 h-2.5 rounded-full bg-teal-400 border border-white animate-pulse shrink-0" />
+                    <span className="text-xs sm:text-sm font-extrabold text-white truncate drop-shadow">
+                      {worker.name}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1 truncate">
-                    {worker.specialty}
-                  </p>
                 </div>
               </div>
 
-              {/* Booking Button */}
-              <button
-                onClick={() => handleOpenBooking(worker)}
-                className="w-full py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center space-x-2 shadow-sm shadow-teal-600/20 transition-all"
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Book Appointment</span>
-              </button>
+              {/* Action: Booking Button */}
+              <div className="w-full pt-0.5">
+                <button
+                  onClick={() => handleOpenBooking(worker)}
+                  className="w-full py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-sm shadow-teal-600/25 transition-all"
+                  title={`Book Appointment with ${worker.name} (${worker.profession})`}
+                >
+                  <Calendar className="w-3.5 h-3.5 shrink-0" />
+                  <span>Book Appointment</span>
+                </button>
+              </div>
             </div>
           ))}
         </div>
