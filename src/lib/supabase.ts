@@ -1135,11 +1135,13 @@ export const updateCallLog = async (logId: string, updates: {
 /** Update call log by sessionId */
 export const updateCallLogBySession = async (sessionId: string, updates: {
   status?: string;
+  answeredAt?: string;
   endedAt?: string;
   durationSec?: number;
 }) => {
   const row: Record<string, any> = {};
   if (updates.status) row.status = updates.status;
+  if (updates.answeredAt) row.answered_at = updates.answeredAt;
   if (updates.endedAt) row.ended_at = updates.endedAt;
   if (updates.durationSec !== undefined) row.duration_sec = updates.durationSec;
 
