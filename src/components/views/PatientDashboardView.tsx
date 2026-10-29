@@ -2,56 +2,43 @@ import React, { useState, useEffect } from 'react';
 import {
   Calendar,
   Clock,
-  UserCheck,
-  FileText,
-  Shield,
-  Watch,
-  BookOpen,
-  Users,
   MessageSquare,
   Video,
   Phone,
   ChevronRight,
-  Stethoscope,
-  Dumbbell,
-  Heart,
-  AlertCircle,
-  Sparkles,
-  ShieldCheck,
-  Star,
-  Activity
+  CheckCircle2,
+  X,
+  MapPin,
+  Sparkles
 } from 'lucide-react';
 import { PatientProfile, VitalRecord, CarePlan, HomeCareRequest, HealthcareWorker } from '../../types';
 import { NavTab } from '../layout/Navigation';
 
 interface DashboardProps {
   patient: PatientProfile;
-  latestVitals: VitalRecord[];
+  latestVitals?: VitalRecord[];
   activeCarePlan?: CarePlan;
-  upcomingHomeVisits: HomeCareRequest[];
+  upcomingHomeVisits?: HomeCareRequest[];
   clinicians: HealthcareWorker[];
   onNavigate: (tab: NavTab) => void;
-  onOpenAddVitals: () => void;
+  onOpenAddVitals?: () => void;
   onStartCall: (clinician: HealthcareWorker, type: 'video' | 'audio') => void;
   onOpenDirectChat: (clinician: HealthcareWorker) => void;
-  networkState: string;
-  lastSyncedTime: string | null;
-  pendingCount: number;
+  networkState?: string;
+  lastSyncedTime?: string | null;
+  pendingCount?: number;
+  onRequestHomeCare?: (req: Omit<HomeCareRequest, 'id' | 'syncStatus'>) => Promise<void>;
 }
 
 export const PatientDashboardView: React.FC<DashboardProps> = ({
   patient,
-  latestVitals,
-  upcomingHomeVisits,
   clinicians,
   onNavigate,
-  onOpenAddVitals,
   onStartCall,
   onOpenDirectChat,
+  onRequestHomeCare
 }) => {
-  const latestVital = latestVitals[0];
-
-  // ── Carousel Slides — Clean background images, no buttons ────────────
+  // ── Carousel Slides ──────────────────────────────────────────────────
   const carouselSlides = [
     {
       id: 'telehealth',
@@ -101,7 +88,7 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
     return () => clearInterval(interval);
   }, [isPaused, carouselSlides.length]);
 
-  // ── 10 Services — image + label only, no icons, no emoji ────────────
+  // ── Categories (10 Clinic Services) ──────────────────────────────────
   const clinicServices = [
     {
       id: 'consultation',
@@ -165,12 +152,89 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
     }
   ];
 
-  return (
-    <div className="space-y-6 pb-24 max-w-full overflow-hidden">
+  // ── Separation: Doctors on Call vs Allied Health Workers ──────────────
+  const doctorsOnCall = clinicians.filter(
+    (c) => c.profession?.toLowerCase() === 'doctor' || !c.profession
+  );
 
-      {/* ── 1. CAROUSEL — Clean background images, minimal overlay text, no buttons ── */}
+  const alliedWorkers = clinicians.filter(
+    (c) => c.profession?.toLowerCase() !== 'doctor' && !!c.profession
+  );
+
+  // ── Booking Modal State ──────────────────────────────────────────────
+  const [selectedWorkerForBooking, setSelectedWorkerForBooking] = useState<HealthcareWorker | null>(null);
+  const [bookingDate, setBookingDate] = useState<string>(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  });
+  const [bookingAddress, setBookingAddress] = useState<string>('Plot 14, Ntinda-Nakawa Road, Kampala');
+  const [bookingNotes, setBookingNotes] = useState<string>('');
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
+  const [bookingSuccessMessage, setBookingSuccessMessage] = useState<string | null>(null);
+
+  const handleOpenBooking = (worker: HealthcareWorker) => {
+    setSelectedWorkerForBooking(worker);
+  };
+
+  const handleConfirmBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedWorkerForBooking) return;
+    setIsSubmittingBooking(true);
+    try {
+      if (onRequestHomeCare) {
+        await onRequestHomeCare({
+          patientId: patient.id || 'pat_sarah_001',
+          patientName: patient.fullName || 'Sarah Namubiru',
+          serviceType:
+            selectedWorkerForBooking.profession === 'Physiotherapist'
+              ? 'Physiotherapy'
+              : selectedWorkerForBooking.profession === 'Midwife'
+              ? 'Midwifery'
+              : 'Nursing',
+          address: bookingAddress,
+          scheduledDate: bookingDate,
+          status: 'confirmed',
+          clinicalNotes: bookingNotes || `Booked appointment with ${selectedWorkerForBooking.name} (${selectedWorkerForBooking.profession})`,
+          assignedWorkerId: selectedWorkerForBooking.id,
+          assignedWorkerName: selectedWorkerForBooking.name,
+          assignedWorkerAvatar: selectedWorkerForBooking.avatar
+        });
+      }
+      setBookingSuccessMessage(`Appointment successfully booked with ${selectedWorkerForBooking.name}!`);
+      setTimeout(() => setBookingSuccessMessage(null), 5000);
+      setSelectedWorkerForBooking(null);
+      setBookingNotes('');
+    } catch {
+      // Fallback
+      onNavigate('homecare');
+    } finally {
+      setIsSubmittingBooking(false);
+    }
+  };
+
+  return (
+    <div className="space-y-7 pb-20 max-w-full overflow-hidden bg-white text-slate-900">
+
+      {/* Booking Success Toast */}
+      {bookingSuccessMessage && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 rounded-2xl flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center space-x-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <p className="text-xs sm:text-sm font-semibold">{bookingSuccessMessage}</p>
+          </div>
+          <button
+            onClick={() => setBookingSuccessMessage(null)}
+            className="text-emerald-700 hover:text-emerald-900 text-xs font-bold"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* ── 1. CAROUSEL ─────────────────────────────────────────────────── */}
       <div
-        className="relative rounded-3xl overflow-hidden shadow-2xl cursor-pointer"
+        className="relative rounded-3xl overflow-hidden shadow-md border border-slate-200 cursor-pointer"
         style={{ height: '220px' }}
         onTouchStart={() => setIsPaused(true)}
         onTouchEnd={() => setIsPaused(false)}
@@ -185,24 +249,22 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
               index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
             }`}
           >
-            {/* Full clear background image */}
             <img
               src={slide.image}
               alt={slide.label}
               className="w-full h-full object-cover"
             />
-            {/* Subtle bottom gradient only — keeps image clear */}
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/20" />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
 
-            {/* Text — bottom-left, clean and minimal */}
             <div className="absolute bottom-0 left-0 right-0 p-5">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-teal-300 mb-1">
-                VitaNova Clinic
+              <p className="text-[11px] font-bold uppercase tracking-widest text-teal-300 mb-1 flex items-center space-x-1">
+                <Sparkles className="w-3 h-3 text-teal-300 inline" />
+                <span>VitaNova Clinic</span>
               </p>
               <h2 className="text-lg sm:text-xl font-extrabold text-white leading-snug">
                 {slide.label}
               </h2>
-              <p className="text-xs text-slate-300 mt-0.5 opacity-90">{slide.subtitle}</p>
+              <p className="text-xs text-slate-200 mt-0.5 opacity-90">{slide.subtitle}</p>
             </div>
           </div>
         ))}
@@ -217,43 +279,42 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
               className={`transition-all duration-300 rounded-full ${
                 currentSlide === i
                   ? 'w-5 h-1.5 bg-teal-400'
-                  : 'w-1.5 h-1.5 bg-white/50 hover:bg-white/80'
+                  : 'w-1.5 h-1.5 bg-white/60 hover:bg-white'
               }`}
             />
           ))}
         </div>
       </div>
 
-      {/* ── 2. SERVICES GRID — 5 columns × 2 rows, bigger tiles, image + label only ── */}
-      <div className="space-y-2.5">
+      {/* ── 2. CATEGORIES (Our Services) ─────────────────────────────────── */}
+      <div className="space-y-3">
         <div className="flex items-center justify-between px-0.5">
-          <h2 className="text-sm font-bold text-white">Our Services</h2>
-          <span className="text-[10px] text-teal-400 font-semibold bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
-            10 Available
+          <div className="flex items-center space-x-2">
+            <h2 className="text-base font-extrabold text-slate-900 tracking-tight">Our Services</h2>
+          </div>
+          <span className="text-[11px] text-teal-700 font-bold bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-200">
+            10 Categories
           </span>
         </div>
 
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-5 gap-2 sm:gap-3">
           {clinicServices.map((svc) => (
             <button
               key={svc.id}
               onClick={() => onNavigate(svc.tab)}
-              className="group relative rounded-2xl overflow-hidden border border-slate-800 hover:border-slate-600 transition-all duration-200 active:scale-95"
-              style={{ height: '100px' }}
+              className="group relative rounded-2xl overflow-hidden border border-slate-200 hover:border-teal-500 shadow-sm hover:shadow-md transition-all duration-200 active:scale-95"
+              style={{ height: '105px' }}
               title={svc.title}
             >
-              {/* Full image background */}
               <img
                 src={svc.image}
                 alt={svc.title}
                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
               />
-              {/* Gradient for text readability */}
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/30 to-transparent" />
 
-              {/* Label only — centered at bottom */}
               <div className="absolute bottom-0 left-0 right-0 pb-2 px-1">
-                <p className="text-[10px] sm:text-[11px] font-bold text-white text-center leading-tight drop-shadow-md">
+                <p className="text-[10px] sm:text-xs font-bold text-white text-center leading-tight drop-shadow-md">
                   {svc.title}
                 </p>
               </div>
@@ -262,286 +323,235 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* ── 3. VERIFIED CARE TEAM ── clean cards, no background image strip ── */}
+      {/* ── 3. DOCTORS ON CALL (Profiles: Image, Video, Audio Call, Message) ── */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-0.5">
           <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-            <h2 className="text-sm font-bold text-white">Your Care Team</h2>
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+            <h2 className="text-base font-extrabold text-slate-900 tracking-tight">Doctors on Call</h2>
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              Live
+            </span>
           </div>
           <button
             onClick={() => onNavigate('consultation')}
-            className="text-[10px] font-semibold text-teal-400 hover:text-teal-300 flex items-center space-x-0.5 transition-colors"
+            className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center space-x-0.5 transition-colors"
           >
             <span>All Doctors</span>
-            <ChevronRight className="w-3 h-3" />
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {clinicians.map((clinician) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {doctorsOnCall.map((doc) => (
             <div
-              key={clinician.id}
-              className="rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all shadow-md"
+              key={doc.id}
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-teal-500/30 transition-all p-3.5 flex flex-col items-center justify-between space-y-3"
             >
-              <div className="p-4 space-y-3">
-                {/* Doctor header row */}
-                <div className="flex items-start gap-3">
-                  <div className="relative shrink-0">
-                    <img
-                      src={clinician.avatar}
-                      alt={clinician.name}
-                      className="w-14 h-14 rounded-2xl object-cover border-2 border-teal-500/40 shadow"
-                    />
-                    <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900" />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center space-x-1.5 flex-wrap gap-y-0.5">
-                      <p className="text-sm font-extrabold text-white truncate">{clinician.name}</p>
-                      {clinician.verified && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 shrink-0">
-                          Verified
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-teal-400 font-semibold mt-0.5 truncate">{clinician.specialty}</p>
-                    <div className="flex items-center space-x-2 mt-1 text-[10px]">
-                      <span className="text-emerald-400 font-semibold flex items-center space-x-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                        <span>In-App Line Active</span>
-                      </span>
-                      <span className="text-slate-600">•</span>
-                      <span className="text-amber-400 font-bold flex items-center space-x-0.5">
-                        <Star className="w-2.5 h-2.5 fill-amber-400" />
-                        <span>{clinician.rating}</span>
-                      </span>
-                      <span className="text-slate-600">•</span>
-                      <span className="text-white font-bold text-[10px]">
-                        UGX {clinician.feeUGX?.toLocaleString()}
-                      </span>
-                    </div>
+              {/* Doctor Image Profile */}
+              <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-inner group">
+                <img
+                  src={doc.avatar}
+                  alt={doc.name}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+                {/* Clean image overlay badge for doctor identity and online status */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-transparent flex items-end p-2.5">
+                  <div className="flex items-center space-x-1.5 min-w-0 w-full">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 border border-white animate-pulse shrink-0" />
+                    <span className="text-xs sm:text-sm font-extrabold text-white truncate drop-shadow">
+                      {doc.name}
+                    </span>
                   </div>
                 </div>
+              </div>
 
-                {/* Action row */}
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800">
-                  <button
-                    onClick={() => onStartCall(clinician, 'video')}
-                    className="py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-[11px] flex items-center justify-center space-x-1 transition-all active:scale-95 shadow-sm shadow-teal-500/20"
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    <span>Video</span>
-                  </button>
-                  <button
-                    onClick={() => onStartCall(clinician, 'audio')}
-                    className="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] border border-slate-700 flex items-center justify-center space-x-1 transition-colors"
-                  >
-                    <Phone className="w-3.5 h-3.5 text-teal-400" />
-                    <span>Voice</span>
-                  </button>
-                  <button
-                    onClick={() => onOpenDirectChat(clinician)}
-                    className="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] border border-slate-700 flex items-center justify-center space-x-1 transition-colors"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-teal-400" />
-                    <span>Message</span>
-                  </button>
-                </div>
+              {/* Action Buttons: Video Call, Audio Call, Message */}
+              <div className="grid grid-cols-3 gap-2 w-full pt-0.5">
+                <button
+                  onClick={() => onStartCall(doc, 'video')}
+                  className="py-2.5 px-2 rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-sm shadow-teal-600/25 transition-all"
+                  title={`Start Video Consultation with ${doc.name}`}
+                >
+                  <Video className="w-3.5 h-3.5 shrink-0" />
+                  <span>Video</span>
+                </button>
+                <button
+                  onClick={() => onStartCall(doc, 'audio')}
+                  className="py-2.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-bold text-xs border border-slate-200 flex items-center justify-center space-x-1.5 transition-all"
+                  title={`Start Audio Call with ${doc.name}`}
+                >
+                  <Phone className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span>Audio</span>
+                </button>
+                <button
+                  onClick={() => onOpenDirectChat(doc)}
+                  className="py-2.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-bold text-xs border border-slate-200 flex items-center justify-center space-x-1.5 transition-all"
+                  title={`Direct Message ${doc.name}`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span>Message</span>
+                </button>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── 4. CLINICAL VITALS SUMMARY ── */}
-      <div className="bg-slate-900 rounded-3xl border border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-md">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-7 h-7 rounded-xl bg-rose-500/15 border border-rose-500/25 flex items-center justify-center">
-              <Heart className="w-4 h-4 text-rose-400" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-white">Clinical Vitals Summary</h2>
-              <p className="text-[10px] text-slate-400">
-                {latestVitals.length > 0
-                  ? `${latestVitals.length} record${latestVitals.length === 1 ? '' : 's'} logged`
-                  : 'No vitals logged yet'}
-              </p>
-            </div>
-          </div>
+      {/* ── 4. NURSES, MIDWIVES & PHYSIOTHERAPISTS (Profession + Booking Button) ── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-0.5">
           <div className="flex items-center space-x-2">
-            <button
-              onClick={onOpenAddVitals}
-              className="text-[10px] font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-700 transition-colors"
-            >
-              + Log Vital
-            </button>
-            <button
-              onClick={() => onNavigate('vitals')}
-              className="text-[10px] font-bold text-teal-400 hover:text-teal-300 flex items-center space-x-0.5 transition-colors"
-            >
-              <span>View Charts</span>
-              <ChevronRight className="w-3 h-3" />
-            </button>
+            <span className="w-2.5 h-2.5 rounded-full bg-teal-500 inline-block" />
+            <h2 className="text-base font-extrabold text-slate-900 tracking-tight">
+              Nurses, Midwives & Physiotherapists
+            </h2>
           </div>
+          <button
+            onClick={() => onNavigate('homecare')}
+            className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center space-x-0.5 transition-colors"
+          >
+            <span>Home Visits</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
-        {latestVital ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <button
-              onClick={() => onNavigate('vitals')}
-              className="p-3.5 rounded-2xl bg-slate-800/50 hover:bg-slate-800 border border-slate-700/60 hover:border-teal-500/40 text-left transition-all"
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {alliedWorkers.map((worker) => (
+            <div
+              key={worker.id}
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-teal-500/30 transition-all p-4 flex flex-col justify-between space-y-3.5"
             >
-              <p className="text-[10px] text-slate-400 font-medium">Blood Pressure</p>
-              <p className="text-lg font-black text-white mt-1 tracking-tight">
-                {latestVital.systolicBP && latestVital.diastolicBP
-                  ? `${latestVital.systolicBP}/${latestVital.diastolicBP}`
-                  : '—'}
-              </p>
-              <div className="flex items-center space-x-1 mt-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                <span className="text-[9.5px] font-bold text-emerald-400">Healthy</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => onNavigate('vitals')}
-              className="p-3.5 rounded-2xl bg-slate-800/50 hover:bg-slate-800 border border-slate-700/60 hover:border-teal-500/40 text-left transition-all"
-            >
-              <p className="text-[10px] text-slate-400 font-medium">Blood Glucose</p>
-              <p className="text-lg font-black text-white mt-1 tracking-tight">
-                {latestVital.bloodGlucose != null ? latestVital.bloodGlucose : '—'}
-                {latestVital.bloodGlucose != null && (
-                  <span className="text-[10px] text-slate-400 font-normal"> mmol/L</span>
-                )}
-              </p>
-              <div className="flex items-center space-x-1 mt-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                <span className="text-[9.5px] font-bold text-emerald-400">Normal</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => onNavigate('vitals')}
-              className="p-3.5 rounded-2xl bg-slate-800/50 hover:bg-slate-800 border border-slate-700/60 hover:border-teal-500/40 text-left transition-all"
-            >
-              <p className="text-[10px] text-slate-400 font-medium">Heart Rate</p>
-              <p className="text-lg font-black text-white mt-1 tracking-tight">
-                {latestVital.heartRate != null ? latestVital.heartRate : '—'}
-                {latestVital.heartRate != null && (
-                  <span className="text-[10px] text-slate-400 font-normal"> bpm</span>
-                )}
-              </p>
-              <div className="flex items-center space-x-1 mt-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 inline-block animate-pulse" />
-                <span className="text-[9.5px] font-bold text-teal-400">Steady</span>
-              </div>
-            </button>
-
-            <div className="p-3.5 rounded-2xl bg-slate-800/50 border border-slate-700/60">
-              <p className="text-[10px] text-slate-400 font-medium">Oxygen SpO2</p>
-              <p className="text-lg font-black text-white mt-1 tracking-tight">
-                {latestVital.spO2 != null ? latestVital.spO2 : '—'}
-                {latestVital.spO2 != null && (
-                  <span className="text-[10px] text-slate-400 font-normal">%</span>
-                )}
-              </p>
-              <div className="flex items-center space-x-1 mt-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                <span className="text-[9.5px] font-bold text-emerald-400">Optimal</span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-6 border border-dashed border-slate-700 rounded-2xl">
-            <Activity className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-xs text-slate-400 font-medium">No vitals logged yet</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">Tap "+ Log Vital" to record your first reading</p>
-            <button
-              onClick={onOpenAddVitals}
-              className="mt-3 px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs transition-colors"
-            >
-              Record First Vital
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── 5. NEXT HOME VISIT & MEDICATION REMINDER ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {/* Next Home Visit */}
-        <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-md">
-          <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <div className="flex items-center space-x-2">
-              <div className="w-7 h-7 rounded-xl bg-teal-500/15 border border-teal-500/25 flex items-center justify-center">
-                <Calendar className="w-3.5 h-3.5 text-teal-400" />
-              </div>
-              <span className="text-xs font-bold text-white">Next Nurse Visit</span>
-            </div>
-            <button onClick={() => onNavigate('homecare')} className="text-[10px] text-teal-400 font-semibold">
-              View All
-            </button>
-          </div>
-          <div className="px-4 pb-4">
-            {upcomingHomeVisits.length > 0 ? (
-              <div className="flex items-center space-x-3 p-3 rounded-xl bg-slate-800/60 border border-slate-700/50">
+              <div className="flex items-start space-x-3.5">
                 <img
-                  src={upcomingHomeVisits[0].assignedWorkerAvatar || 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=200&q=80'}
-                  alt="Nurse"
-                  className="w-10 h-10 rounded-xl object-cover border border-teal-500/30 shrink-0"
+                  src={worker.avatar}
+                  alt={worker.name}
+                  className="w-16 h-16 rounded-2xl object-cover border border-slate-200 shadow-sm shrink-0"
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-white truncate">{upcomingHomeVisits[0].assignedWorkerName || 'Sister Florence'}</p>
-                  <p className="text-[10px] text-slate-400 flex items-center space-x-1 mt-0.5">
-                    <Clock className="w-2.5 h-2.5 text-slate-500" />
-                    <span>{upcomingHomeVisits[0].scheduledDate}</span>
+                  <h3 className="text-sm font-extrabold text-slate-900 truncate">
+                    {worker.name}
+                  </h3>
+                  <div className="mt-1">
+                    <span className="inline-block text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-200">
+                      {worker.profession}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 truncate">
+                    {worker.specialty}
                   </p>
                 </div>
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 border border-teal-500/20 shrink-0">
-                  Confirmed
-                </span>
               </div>
-            ) : (
-              <div className="text-center py-3">
-                <p className="text-[11px] text-slate-500">No visits scheduled</p>
-                <button
-                  onClick={() => onNavigate('homecare')}
-                  className="mt-2 text-[10px] text-teal-400 font-semibold hover:underline"
-                >
-                  Book a home visit
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Medication Adherence */}
-        <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-md">
-          <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <div className="flex items-center space-x-2">
-              <div className="w-7 h-7 rounded-xl bg-teal-500/15 border border-teal-500/25 flex items-center justify-center">
-                <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
-              </div>
-              <span className="text-xs font-bold text-white">Medication</span>
+              {/* Booking Button */}
+              <button
+                onClick={() => handleOpenBooking(worker)}
+                className="w-full py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center space-x-2 shadow-sm shadow-teal-600/20 transition-all"
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Book Appointment</span>
+              </button>
             </div>
-            <button onClick={() => onNavigate('chronic')} className="text-[10px] text-teal-400 font-semibold">
-              Care Plan
-            </button>
-          </div>
-          <div className="px-4 pb-4">
-            <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-white">Amlodipine 5mg</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">Daily at 08:00 AM</p>
-              </div>
-              <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">
-                96% Adherent
-              </span>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
+
+      {/* ── NO FURTHER SECTIONS RENDERED ON HOME DASHBOARD ─────────────── */}
+
+      {/* ── Booking Modal for Nurses, Midwives & Physiotherapists ───────── */}
+      {selectedWorkerForBooking && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-3">
+                <img
+                  src={selectedWorkerForBooking.avatar}
+                  alt={selectedWorkerForBooking.name}
+                  className="w-12 h-12 rounded-2xl object-cover border border-slate-200 shadow-sm"
+                />
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    {selectedWorkerForBooking.name}
+                  </h3>
+                  <span className="inline-block text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                    {selectedWorkerForBooking.profession}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedWorkerForBooking(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmBooking} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1 flex items-center space-x-1">
+                  <Calendar className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Preferred Date</span>
+                </label>
+                <input
+                  type="date"
+                  value={bookingDate}
+                  onChange={(e) => setBookingDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-teal-500 font-medium"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1 flex items-center space-x-1">
+                  <MapPin className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Home Visit Address (Kampala / Wakiso)</span>
+                </label>
+                <input
+                  type="text"
+                  value={bookingAddress}
+                  onChange={(e) => setBookingAddress(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-teal-500 font-medium"
+                  placeholder="e.g. Plot 14, Ntinda-Nakawa Road"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1 flex items-center space-x-1">
+                  <Clock className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Care Notes / Reason for Visit</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={bookingNotes}
+                  onChange={(e) => setBookingNotes(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-teal-500 font-medium resize-none"
+                  placeholder="Describe needed care: e.g. Postpartum counseling, wound dressing, or mobility rehab."
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedWorkerForBooking(null)}
+                  className="px-4 py-2 rounded-xl font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingBooking}
+                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold shadow-sm shadow-teal-600/30 transition-all flex items-center space-x-1.5"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>{isSubmittingBooking ? 'Booking...' : 'Confirm Appointment'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

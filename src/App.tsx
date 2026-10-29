@@ -933,8 +933,16 @@ export const App: React.FC = () => {
   };
   const activePatient = patient || guestPatient;
 
+  useEffect(() => {
+    if (activeTab === 'home') {
+      document.body.style.backgroundColor = '#ffffff';
+    } else {
+      document.body.style.backgroundColor = '#090e17';
+    }
+  }, [activeTab]);
+
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col selection:bg-teal-500 selection:text-white">
+    <div className={`min-h-screen ${activeTab === 'home' ? 'bg-white text-slate-900' : 'bg-slate-950'} flex flex-col selection:bg-teal-500 selection:text-white`}>
       {/* Header */}
       <Header
         currentRole={currentRole}
@@ -1001,6 +1009,7 @@ export const App: React.FC = () => {
             networkState={networkState}
             lastSyncedTime={syncInfo.lastSyncedTime}
             pendingCount={syncInfo.pendingCount}
+            onRequestHomeCare={handleRequestHomeCare}
           />
         )}
 
