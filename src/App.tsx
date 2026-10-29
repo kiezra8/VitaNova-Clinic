@@ -325,7 +325,10 @@ export const App: React.FC = () => {
     return null;
   });
   const [callType, setCallType] = useState<'video' | 'audio' | null>(() => {
-    if (autoAnswerFromUrl) return 'video';
+    if (autoAnswerFromUrl) {
+      const ct = urlParams?.get('callType');
+      return ct === 'audio' ? 'audio' : 'video';
+    }
     return null;
   });
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(sessionIdFromUrl || null);
@@ -848,18 +851,8 @@ export const App: React.FC = () => {
     setActiveCallSessionId(null);
   }, []);
 
-  // Direct In-App Call Initiation — Guarded by Patient Account Requirement
+  // Direct In-App Call Initiation — Instant 1-tap call for patients & doctors
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
-    // REQUIREMENT: Patient must have an account and be signed in to call a doctor!
-    if (!isPatientLoggedIn && !isDoctorLoggedIn) {
-      setAuthModalCallPrompt(`Please sign in or create an account to start your consultation call with ${clinician.name}.`);
-      setPendingCall({ clinician, type });
-      setAuthModalRole('patient');
-      setAuthModalAction('signin');
-      setAuthModalOpen(true);
-      return;
-    }
-
     const newSessionId = `vitanova_call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     setActiveCallSessionId(newSessionId);
     setActiveCallClinician(clinician);
