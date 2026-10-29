@@ -83,7 +83,7 @@ export const ClinicianPortalView: React.FC<ClinicianPortalViewProps> = ({
                 currentRole === 'doctor'
                   ? 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80'
                   : currentRole === 'nurse'
-                  ? 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80'
+                  ? 'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg'
                   : currentRole === 'midwife'
                   ? 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=400&q=80'
                   : 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80'

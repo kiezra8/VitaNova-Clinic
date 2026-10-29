@@ -13,23 +13,30 @@ import {
   ShieldCheck,
   Send
 } from 'lucide-react';
-import { HomeCareRequest, SyncStatus } from '../../types';
+import { HomeCareRequest, SyncStatus, HealthcareWorker } from '../../types';
 
 interface HomeCareViewProps {
   requests: HomeCareRequest[];
   onRequestHomeCare: (req: Omit<HomeCareRequest, 'id' | 'syncStatus'>) => Promise<void>;
   onCompleteVisit: (id: string, notes: string) => Promise<void>;
   networkState: string;
+  clinicians?: HealthcareWorker[];
 }
 
 export const HomeCareView: React.FC<HomeCareViewProps> = ({
   requests,
   onRequestHomeCare,
   onCompleteVisit,
-  networkState
+  networkState,
+  clinicians = []
 }) => {
   const [showBookingModal, setShowBookingModal] = useState<boolean>(false);
+  const [selectedWorker, setSelectedWorker] = useState<HealthcareWorker | null>(null);
   const [selectedVisitForDocumentation, setSelectedVisitForDocumentation] = useState<HomeCareRequest | null>(null);
+
+  const alliedWorkers = clinicians.filter(
+    (c) => c.profession?.toLowerCase() !== 'doctor' && !!c.profession
+  );
 
   // Booking Form State
   const [serviceType, setServiceType] = useState<HomeCareRequest['serviceType']>('Nursing');
@@ -118,6 +125,80 @@ export const HomeCareView: React.FC<HomeCareViewProps> = ({
         </div>
       </div>
 
+      {/* ── Nurses, Midwives & Physiotherapists Section (As on Home Screen) ── */}
+      {alliedWorkers.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between px-0.5">
+            <div className="flex items-center space-x-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-teal-500 inline-block" />
+              <h2 className="text-base font-extrabold text-white tracking-tight">
+                Nurses, Midwives & Physiotherapists
+              </h2>
+            </div>
+            <span className="text-[11px] font-bold text-teal-400 bg-teal-500/10 px-2.5 py-0.5 rounded-full border border-teal-500/20">
+              Verified Care Staff
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {alliedWorkers.map((worker) => (
+              <div
+                key={worker.id}
+                className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm hover:shadow-md hover:border-teal-500/40 transition-all p-3.5 flex flex-col items-center justify-between space-y-3"
+              >
+                {/* Profile Image — Same large aspect-[4/3] card format as doctors */}
+                <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-800 border border-slate-700 shadow-inner group">
+                  <img
+                    src={worker.avatar}
+                    alt={worker.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+
+                  {/* Profession Badge */}
+                  <div className="absolute top-2.5 right-2.5 z-10">
+                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-950/85 backdrop-blur-sm text-teal-300 border border-teal-500/30 shadow-md">
+                      {worker.profession}
+                    </span>
+                  </div>
+
+                  {/* Name & Active Status Indicator Overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-transparent flex items-end p-2.5">
+                    <div className="flex items-center space-x-1.5 min-w-0 w-full">
+                      <span className="w-2.5 h-2.5 rounded-full bg-teal-400 border border-white animate-pulse shrink-0" />
+                      <span className="text-xs sm:text-sm font-extrabold text-white truncate drop-shadow">
+                        {worker.name}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action: Booking Button */}
+                <div className="w-full pt-0.5">
+                  <button
+                    onClick={() => {
+                      setSelectedWorker(worker);
+                      setServiceType(
+                        worker.profession === 'Physiotherapist'
+                          ? 'Physiotherapy'
+                          : worker.profession === 'Midwife'
+                          ? 'Midwifery'
+                          : 'Nursing'
+                      );
+                      setShowBookingModal(true);
+                    }}
+                    className="w-full py-2.5 px-3 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 font-bold text-xs flex items-center justify-center space-x-1.5 shadow-sm shadow-teal-500/25 transition-all"
+                    title={`Book Appointment with ${worker.name} (${worker.profession})`}
+                  >
+                    <Calendar className="w-3.5 h-3.5 shrink-0" />
+                    <span>Book Appointment</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Active & Scheduled Home Visits */}
       <div className="space-y-3">
         <h2 className="text-sm font-bold text-white tracking-tight">Your Home Care Visits</h2>
@@ -160,7 +241,7 @@ export const HomeCareView: React.FC<HomeCareViewProps> = ({
                 <div className="flex items-center space-x-3">
                   <img
                     src={req.assignedWorkerAvatar || (req.serviceType === 'Nursing'
-                      ? 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80'
+                      ? 'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg'
                       : 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=400&q=80')}
                     alt={req.assignedWorkerName || 'Health Worker'}
                     className="w-11 h-11 rounded-xl object-cover border border-teal-500/40 shrink-0"

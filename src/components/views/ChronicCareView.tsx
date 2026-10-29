@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Shield,
   Target,
@@ -8,7 +8,9 @@ import {
   Activity,
   CheckCircle2,
   Clock,
-  ChevronRight
+  ChevronRight,
+  Stethoscope,
+  UserCheck
 } from 'lucide-react';
 import { CarePlan } from '../../types';
 
@@ -23,11 +25,20 @@ export const ChronicCareView: React.FC<ChronicCareViewProps> = ({
 }) => {
   if (!carePlan) {
     return (
-      <div className="p-8 text-center text-slate-400 text-sm">
-        No active chronic care plan enrolled.
+      <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-3 my-6">
+        <Stethoscope className="w-10 h-10 text-teal-400 mx-auto opacity-70" />
+        <h3 className="text-base font-bold text-white">No Care Plan Issued Yet</h3>
+        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+          When your consulting Doctor or Nurse issues your personalized care protocol, medications, and clinical goals, it will be visible here.
+        </p>
       </div>
     );
   }
+
+  // Determine author (Doctor or Nurse)
+  const authorName = carePlan.careTeam?.[0]?.name || 'Dr. Ronald Mukasa';
+  const authorRole = carePlan.careTeam?.[0]?.role || 'Doctor';
+  const isNurse = authorRole.toLowerCase().includes('nurse');
 
   return (
     <div className="space-y-6 pb-20">
@@ -41,7 +52,7 @@ export const ChronicCareView: React.FC<ChronicCareViewProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Supervised by Dr. Ronald Mukasa • Synchronized for offline daily reference.
+            Supervised by {authorName} ({authorRole}) • Synchronized for offline daily reference.
           </p>
         </div>
 
@@ -52,6 +63,32 @@ export const ChronicCareView: React.FC<ChronicCareViewProps> = ({
           <Activity className="w-4 h-4" />
           <span>Log Protocol Vitals</span>
         </button>
+      </div>
+
+      {/* ── Practitioner Authorship Banner (Clearly shows if Doctor or Nurse created it) ── */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-950/70 via-slate-900 to-slate-900 border border-teal-500/30 flex items-center justify-between">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-teal-500/15 text-teal-300 flex items-center justify-center border border-teal-500/30 shrink-0">
+            {isNurse ? <UserCheck className="w-6 h-6 text-teal-400" /> : <Stethoscope className="w-6 h-6 text-teal-400" />}
+          </div>
+          <div>
+            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+              <span className="text-sm font-extrabold text-white">
+                Prescribed & Issued by: {authorName}
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                isNurse
+                  ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+              }`}>
+                {authorRole} Prescribed
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Verified clinical protocol for Sarah Namubiru • Active Daily Schedule
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Target Metrics Cards */}

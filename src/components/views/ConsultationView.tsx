@@ -9,6 +9,7 @@ import {
   Clock,
   Search,
   ChevronLeft,
+  ChevronRight,
   Check,
   CheckCheck,
   PhoneIncoming,
@@ -22,9 +23,13 @@ import {
   Mic,
   Image as ImageIcon,
   Camera,
-  X
+  X,
+  Calendar,
+  UserCheck,
+  MapPin,
+  Sparkles
 } from 'lucide-react';
-import { HealthcareWorker } from '../../types';
+import { HealthcareWorker, HomeCareRequest } from '../../types';
 import {
   sendMessage,
   fetchMessages,
@@ -32,6 +37,7 @@ import {
   subscribeToMessages_v2,
   getConversationId,
   fetchCallLogs,
+  fetchConversations,
   ChatMessage,
   CallLog
 } from '../../lib/supabase';
@@ -49,6 +55,9 @@ interface ConsultationViewProps {
   currentUserId?: string;
   currentUserName?: string;
   currentUserRole?: 'patient' | 'doctor';
+  onRequestHomeCare?: (req: Omit<HomeCareRequest, 'id' | 'syncStatus'>) => Promise<void>;
+  directChatClinician?: HealthcareWorker | null;
+  defaultTab?: 'directory' | 'chats' | 'calls';
 }
 
 const formatMessageTime = (dateStr: string) => {
@@ -75,7 +84,7 @@ const formatCallDuration = (sec: number) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-type ViewTab = 'chats' | 'calls';
+type ViewTab = 'directory' | 'calls' | 'chats';
 
 export const ConsultationView: React.FC<ConsultationViewProps> = ({
   clinicians,
@@ -85,10 +94,13 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
   onTriggerCall,
   currentUserId = 'pat_sarah_001',
   currentUserName = 'Sarah Namubiru',
-  currentUserRole = 'patient'
+  currentUserRole = 'patient',
+  onRequestHomeCare,
+  directChatClinician = null,
+  defaultTab = 'directory'
 }) => {
-  const [viewTab, setViewTab] = useState<ViewTab>('chats');
-  const [selectedClinician, setSelectedClinician] = useState<HealthcareWorker | null>(null);
+  const [viewTab, setViewTab] = useState<ViewTab>(directChatClinician ? 'chats' : defaultTab);
+  const [selectedClinician, setSelectedClinician] = useState<HealthcareWorker | null>(directChatClinician);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -98,16 +110,55 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [lastMessages, setLastMessages] = useState<Record<string, { text: string; time: string }>>({});
+
+  // Doctor's Talked Customers state
+  const [talkedCustomers, setTalkedCustomers] = useState<Array<{
+    id: string;
+    name: string;
+    avatar: string;
+    lastMessage?: string;
+    lastTime?: string;
+  }>>([]);
+
+  // Booking Modal State for Nurses, Midwives & Physiotherapists
+  const [selectedWorkerForBooking, setSelectedWorkerForBooking] = useState<HealthcareWorker | null>(null);
+  const [bookingDate, setBookingDate] = useState<string>(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  });
+  const [bookingAddress, setBookingAddress] = useState<string>('Plot 14, Ntinda-Nakawa Road, Kampala');
+  const [bookingNotes, setBookingNotes] = useState<string>('');
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
+  const [bookingSuccessMsg, setBookingSuccessMsg] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Group clinicians into Doctors on Call vs Allied Health Staff
+  const doctorsOnCall = clinicians.filter(
+    (c) => c.profession?.toLowerCase() === 'doctor' || !c.profession
+  );
+
+  const alliedWorkers = clinicians.filter(
+    (c) => c.profession?.toLowerCase() !== 'doctor' && !!c.profession
+  );
+
+  // Listen to external direct chat selection
+  useEffect(() => {
+    if (directChatClinician) {
+      setSelectedClinician(directChatClinician);
+      setViewTab('chats');
+    }
+  }, [directChatClinician]);
 
   // Scroll to bottom of chat
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
 
-  // Load messages when clinician selected
+  // Load messages when clinician/customer selected
   useEffect(() => {
     if (!selectedClinician) return;
 
@@ -125,13 +176,10 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
     // Subscribe to new messages in real-time
     const unsub = subscribeToMessages_v2(conversationId, (newMsg) => {
       setMessages((prev) => {
-        // Avoid duplicates
         if (prev.some((m) => m.id === newMsg.id)) return prev;
         return [...prev, newMsg];
       });
-      // Auto-scroll if near bottom
       setTimeout(() => scrollToBottom(), 100);
-      // Mark as read if we're the recipient
       if (newMsg.recipientId === currentUserId) {
         markMessagesAsRead(conversationId, currentUserId).catch(() => {});
       }
@@ -140,15 +188,98 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
     return () => unsub();
   }, [selectedClinician, currentUserId, scrollToBottom]);
 
-  // Load call logs
+  // Load call logs (Recent calls recorded from localStorage and Supabase)
   useEffect(() => {
-    if (viewTab === 'calls') {
-      fetchCallLogs(currentUserId).then(setCallLogs).catch(() => {});
-    }
+    const loadCalls = async () => {
+      let localCalls: CallLog[] = [];
+      try {
+        const raw = localStorage.getItem('vitanova_recent_calls');
+        if (raw) localCalls = JSON.parse(raw);
+      } catch (_) {}
+
+      try {
+        const remoteCalls = await fetchCallLogs(currentUserId);
+        const combined = [...localCalls];
+        remoteCalls.forEach((rc) => {
+          if (!combined.some((c) => c.id === rc.id || (c.sessionId && c.sessionId === rc.sessionId))) {
+            combined.push(rc);
+          }
+        });
+        combined.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+        setCallLogs(combined);
+      } catch (_) {
+        setCallLogs(localCalls);
+      }
+    };
+
+    loadCalls();
   }, [viewTab, currentUserId]);
 
-  // Build last message and unread count per clinician (for sidebar)
+  // Load doctor's customers (only customers the doctor has talked to)
   useEffect(() => {
+    if (currentUserRole !== 'doctor') return;
+    const loadDoctorCustomers = async () => {
+      const customersMap = new Map<string, { id: string; name: string; avatar: string; lastMessage?: string; lastTime?: string }>();
+
+      // 1. From local doctor customers
+      try {
+        const raw = localStorage.getItem(`vitanova_doctor_customers_${currentUserId}`);
+        if (raw) {
+          const list = JSON.parse(raw);
+          list.forEach((c: any) => customersMap.set(c.id, c));
+        }
+      } catch (_) {}
+
+      // 2. From recent calls
+      try {
+        const rawCalls = localStorage.getItem('vitanova_recent_calls');
+        if (rawCalls) {
+          const calls: any[] = JSON.parse(rawCalls);
+          calls.forEach((cl) => {
+            if (cl.calleeId === currentUserId || cl.callerId === currentUserId) {
+              const otherId = cl.callerId === currentUserId ? cl.calleeId : cl.callerId;
+              const otherName = cl.callerId === currentUserId ? cl.calleeName : cl.callerName;
+              if (otherId && otherId !== currentUserId) {
+                if (!customersMap.has(otherId)) {
+                  customersMap.set(otherId, {
+                    id: otherId,
+                    name: otherName || 'Patient',
+                    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80',
+                    lastMessage: `${cl.callType ? cl.callType.toUpperCase() : 'Video'} Call`,
+                    lastTime: cl.startedAt ? formatMessageTime(cl.startedAt) : undefined
+                  });
+                }
+              }
+            }
+          });
+        }
+      } catch (_) {}
+
+      // 3. From Supabase conversations
+      try {
+        const convs = await fetchConversations(currentUserId);
+        for (const conv of convs) {
+          if (!customersMap.has(conv.otherPartyId)) {
+            customersMap.set(conv.otherPartyId, {
+              id: conv.otherPartyId,
+              name: conv.lastMessage?.senderId === currentUserId ? 'Patient' : (conv.lastMessage?.senderName || 'Patient'),
+              avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80',
+              lastMessage: conv.lastMessage?.content,
+              lastTime: conv.lastMessage?.createdAt ? formatMessageTime(conv.lastMessage.createdAt) : undefined
+            });
+          }
+        }
+      } catch (_) {}
+
+      setTalkedCustomers(Array.from(customersMap.values()));
+    };
+
+    loadDoctorCustomers();
+  }, [currentUserRole, currentUserId]);
+
+  // Build last message and unread count per clinician (for patient sidebar)
+  useEffect(() => {
+    if (currentUserRole === 'doctor') return;
     const loadConversationPreviews = async () => {
       const newLastMessages: Record<string, { text: string; time: string }> = {};
       const newUnread: Record<string, number> = {};
@@ -171,7 +302,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
     };
 
     loadConversationPreviews();
-  }, [clinicians, currentUserId]);
+  }, [clinicians, currentUserId, currentUserRole]);
 
   // Handle scroll to detect if user scrolled up
   const handleChatScroll = () => {
@@ -205,9 +336,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
         });
         setTimeout(() => scrollToBottom(), 100);
       } else if (networkState === 'offline') {
-        // Queue offline
         await onQueueOfflineMessage(selectedClinician.id, text);
-        // Add as local-only message
         setMessages((prev) => [
           ...prev,
           {
@@ -242,6 +371,40 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
     }
   };
 
+  // Booking submit for allied workers
+  const handleConfirmBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedWorkerForBooking) return;
+    setIsSubmittingBooking(true);
+    try {
+      if (onRequestHomeCare) {
+        await onRequestHomeCare({
+          patientId: currentUserId || 'pat_sarah_001',
+          patientName: currentUserName || 'Sarah Namubiru',
+          serviceType:
+            selectedWorkerForBooking.profession === 'Physiotherapist'
+              ? 'Physiotherapy'
+              : selectedWorkerForBooking.profession === 'Midwife'
+              ? 'Midwifery'
+              : 'Nursing',
+          address: bookingAddress,
+          scheduledDate: bookingDate,
+          status: 'confirmed',
+          clinicalNotes: bookingNotes || `Booked appointment with ${selectedWorkerForBooking.name} (${selectedWorkerForBooking.profession})`,
+          assignedWorkerId: selectedWorkerForBooking.id,
+          assignedWorkerName: selectedWorkerForBooking.name,
+          assignedWorkerAvatar: selectedWorkerForBooking.avatar
+        });
+      }
+      setBookingSuccessMsg(`Appointment booked with ${selectedWorkerForBooking.name}!`);
+      setTimeout(() => setBookingSuccessMsg(null), 4000);
+      setSelectedWorkerForBooking(null);
+      setBookingNotes('');
+    } finally {
+      setIsSubmittingBooking(false);
+    }
+  };
+
   // Filter clinicians by search
   const filteredClinicians = clinicians.filter((c) => {
     if (!searchQuery.trim()) return true;
@@ -253,499 +416,629 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
     );
   });
 
-  // Group messages by date for date separators
   const getDateKey = (dateStr: string) => new Date(dateStr).toDateString();
 
-  // ─── CONVERSATION LIST (Left Sidebar) ─────────────────────────────────────
-  const renderConversationList = () => (
-    <div className="flex flex-col h-full bg-slate-900">
-      {/* WhatsApp-style Header */}
-      <div className="px-4 pt-5 pb-3">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-black text-white tracking-tight">Messages</h1>
+  return (
+    <div className="space-y-4 pb-20 max-w-full overflow-hidden">
+      {/* ── Subheader Controls / Main Tab Switcher ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 p-3 sm:p-4 rounded-2xl shadow-lg">
+        <div>
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setShowSearch(!showSearch)}
-              className="p-2 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-            >
-              <Search className="w-5 h-5" />
-            </button>
+            <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">Care & Telehealth</h1>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20">
+              {currentUserRole === 'doctor' ? 'Doctor Portal' : 'Patient Care'}
+            </span>
           </div>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {currentUserRole === 'doctor'
+              ? 'Direct conversations with patients & recent call logs'
+              : 'Doctors on Call, certified nurses, recent calls & private messaging'}
+          </p>
         </div>
 
-        {/* Tab selector: Chats | Calls */}
-        <div className="flex bg-slate-800/60 rounded-xl p-1 mb-3">
+        {/* 3 Main Tabs: Directory | Recent Calls | Messages */}
+        <div className="flex bg-slate-950/80 rounded-xl p-1 border border-slate-800 self-start sm:self-auto">
           <button
-            onClick={() => setViewTab('chats')}
-            className={`flex-1 py-2 rounded-lg text-xs font-extrabold transition-all ${
-              viewTab === 'chats'
+            onClick={() => {
+              setViewTab('directory');
+              setSelectedClinician(null);
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+              viewTab === 'directory'
                 ? 'bg-teal-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5 inline mr-1" />
-            Chats
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>Care Directory</span>
           </button>
+
           <button
-            onClick={() => setViewTab('calls')}
-            className={`flex-1 py-2 rounded-lg text-xs font-extrabold transition-all ${
+            onClick={() => {
+              setViewTab('calls');
+              setSelectedClinician(null);
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
               viewTab === 'calls'
                 ? 'bg-teal-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Phone className="w-3.5 h-3.5 inline mr-1" />
-            Calls
+            <Phone className="w-3.5 h-3.5" />
+            <span>Recent Calls</span>
+            {callLogs.length > 0 && (
+              <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-teal-300">
+                {callLogs.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setViewTab('chats')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+              viewTab === 'chats'
+                ? 'bg-teal-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Messages</span>
           </button>
         </div>
-
-        {/* Search */}
-        {showSearch && (
-          <div className="relative mb-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search clinicians..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
-              autoFocus
-            />
-          </div>
-        )}
       </div>
 
-      {/* Conversation List */}
-      <div className="flex-1 overflow-y-auto">
-        {viewTab === 'chats' ? (
-          filteredClinicians.length > 0 ? (
-            filteredClinicians.map((doc) => {
-              const lastMsg = lastMessages[doc.id];
-              const unread = unreadCounts[doc.id] || 0;
-              const isSelected = selectedClinician?.id === doc.id;
+      {/* Booking Success Toast */}
+      {bookingSuccessMsg && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-semibold animate-in fade-in">
+          <span>{bookingSuccessMsg}</span>
+          <button onClick={() => setBookingSuccessMsg(null)} className="text-emerald-400 hover:text-white font-bold">
+            Dismiss
+          </button>
+        </div>
+      )}
 
-              return (
-                <button
+      {/* ── 1. CARE DIRECTORY TAB (Doctors and Nurses as on Home Screen) ── */}
+      {viewTab === 'directory' && (
+        <div className="space-y-6">
+          {/* Section: Doctors on Call */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-0.5">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                <h2 className="text-base font-extrabold text-white tracking-tight">Doctors on Call</h2>
+                <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  Live Telehealth
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {doctorsOnCall.map((doc) => (
+                <div
                   key={doc.id}
-                  onClick={() => setSelectedClinician(doc)}
-                  className={`w-full flex items-center space-x-3 px-4 py-3.5 transition-all border-b border-slate-800/50 text-left ${
-                    isSelected
-                      ? 'bg-teal-500/10 border-l-2 border-l-teal-500'
-                      : 'hover:bg-slate-800/60'
-                  }`}
+                  className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm hover:shadow-md hover:border-teal-500/30 transition-all p-3.5 flex flex-col items-center justify-between space-y-3"
                 >
-                  {/* Avatar */}
-                  <div className="relative shrink-0">
+                  {/* Doctor Image Profile */}
+                  <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-800 border border-slate-700 shadow-inner group">
                     <img
                       src={doc.avatar}
                       alt={doc.name}
-                      className="w-12 h-12 rounded-full object-cover border-2 border-slate-700"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
-                    {doc.available && (
-                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900" />
-                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-transparent flex items-end p-2.5">
+                      <div className="flex items-center space-x-1.5 min-w-0 w-full">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 border border-white animate-pulse shrink-0" />
+                        <span className="text-xs sm:text-sm font-extrabold text-white truncate drop-shadow">
+                          {doc.name}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <div className="flex items-center space-x-1.5 min-w-0">
-                        <span className="text-sm font-bold text-white truncate">{doc.name}</span>
-                        {doc.verified && <BadgeCheck className="w-3.5 h-3.5 text-teal-400 shrink-0" />}
-                      </div>
-                      {lastMsg && (
-                        <span className="text-[10px] text-slate-500 shrink-0 ml-2">{lastMsg.time}</span>
-                      )}
+                  {/* Action Buttons: Video Call, Audio Call, Message */}
+                  <div className="grid grid-cols-3 gap-2 w-full pt-0.5">
+                    <button
+                      onClick={() => handleStartCall(doc, 'video')}
+                      className="py-2.5 px-2 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 font-bold text-xs flex items-center justify-center space-x-1 shadow-sm shadow-teal-500/20 transition-all"
+                      title={`Start Video Consultation with ${doc.name}`}
+                    >
+                      <Video className="w-3.5 h-3.5 shrink-0" />
+                      <span>Video</span>
+                    </button>
+                    <button
+                      onClick={() => handleStartCall(doc, 'audio')}
+                      className="py-2.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs border border-slate-700 flex items-center justify-center space-x-1 transition-all"
+                      title={`Start Audio Call with ${doc.name}`}
+                    >
+                      <Phone className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                      <span>Audio</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedClinician(doc);
+                        setViewTab('chats');
+                      }}
+                      className="py-2.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs border border-slate-700 flex items-center justify-center space-x-1 transition-all"
+                      title={`Direct Message ${doc.name}`}
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                      <span>Message</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Section: Nurses, Midwives & Physiotherapists */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between px-0.5">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-teal-500 inline-block" />
+                <h2 className="text-base font-extrabold text-white tracking-tight">
+                  Nurses, Midwives & Physiotherapists
+                </h2>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {alliedWorkers.map((worker) => (
+                <div
+                  key={worker.id}
+                  className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm hover:shadow-md hover:border-teal-500/30 transition-all p-3.5 flex flex-col items-center justify-between space-y-3"
+                >
+                  {/* Profile Image — Same large aspect-[4/3] card format as doctors */}
+                  <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-800 border border-slate-700 shadow-inner group">
+                    <img
+                      src={worker.avatar}
+                      alt={worker.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+
+                    {/* Profession Badge */}
+                    <div className="absolute top-2.5 right-2.5 z-10">
+                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-950/85 backdrop-blur-sm text-teal-300 border border-teal-500/30 shadow-md">
+                        {worker.profession}
+                      </span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-slate-400 truncate pr-2">
-                        {lastMsg ? lastMsg.text : doc.specialty}
-                      </p>
-                      {unread > 0 && (
-                        <span className="shrink-0 w-5 h-5 rounded-full bg-teal-500 text-slate-950 text-[10px] font-black flex items-center justify-center">
-                          {unread}
+
+                    {/* Name & Active Status Indicator Overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-transparent flex items-end p-2.5">
+                      <div className="flex items-center space-x-1.5 min-w-0 w-full">
+                        <span className="w-2.5 h-2.5 rounded-full bg-teal-400 border border-white animate-pulse shrink-0" />
+                        <span className="text-xs sm:text-sm font-extrabold text-white truncate drop-shadow">
+                          {worker.name}
                         </span>
-                      )}
+                      </div>
                     </div>
                   </div>
-                </button>
-              );
-            })
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-              <Users className="w-12 h-12 mb-3 opacity-30" />
-              <p className="text-sm font-semibold">No clinicians found</p>
+
+                  {/* Action: Booking Button */}
+                  <div className="w-full pt-0.5">
+                    <button
+                      onClick={() => setSelectedWorkerForBooking(worker)}
+                      className="w-full py-2.5 px-3 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 font-bold text-xs flex items-center justify-center space-x-1.5 shadow-sm shadow-teal-500/20 transition-all"
+                      title={`Book Appointment with ${worker.name} (${worker.profession})`}
+                    >
+                      <Calendar className="w-3.5 h-3.5 shrink-0" />
+                      <span>Book Appointment</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          )
-        ) : (
-          /* CALLS TAB */
-          <div className="px-2">
-            {callLogs.length > 0 ? (
-              callLogs.map((log) => {
-                const isOutgoing = log.callerRole === currentUserRole;
+          </div>
+        </div>
+      )}
+
+      {/* ── 2. RECENT CALLS TAB (Recorded Calls Log) ── */}
+      {viewTab === 'calls' && (
+        <div className="bg-slate-900 rounded-3xl border border-slate-800 p-4 sm:p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center space-x-2">
+              <Phone className="w-5 h-5 text-teal-400" />
+              <h2 className="text-base font-bold text-white">Recent Telehealth Call Log</h2>
+            </div>
+            <span className="text-xs text-slate-400">
+              {callLogs.length} Recorded Call{callLogs.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          {callLogs.length > 0 ? (
+            <div className="space-y-2">
+              {callLogs.map((log) => {
+                const isOutgoing = log.callerRole === currentUserRole || log.callerId === currentUserId;
                 const isMissed = log.status === 'missed' || log.status === 'declined';
-                const otherName = isOutgoing ? log.calleeName : log.callerName;
-                const doc = clinicians.find((c) => c.id === (isOutgoing ? log.calleeId : log.callerId));
+                const otherPartyName = isOutgoing ? log.calleeName : log.callerName;
+                const clinicianMatch = clinicians.find(
+                  (c) => c.id === (isOutgoing ? log.calleeId : log.callerId) || c.name === otherPartyName
+                );
 
                 return (
                   <div
                     key={log.id}
-                    className="flex items-center space-x-3 px-3 py-3 border-b border-slate-800/50 hover:bg-slate-800/40 rounded-xl transition-colors"
+                    className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-slate-700 transition-all"
                   >
-                    <div className="relative shrink-0">
-                      <img
-                        src={doc?.avatar || '/ki_ezra_avatar.jpg'}
-                        alt={otherName}
-                        className="w-11 h-11 rounded-full object-cover border-2 border-slate-700"
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <span className={`text-sm font-bold ${isMissed ? 'text-rose-400' : 'text-white'}`}>
-                        {otherName}
-                      </span>
-                      <div className="flex items-center space-x-1.5 text-[11px] mt-0.5">
-                        {isOutgoing ? (
-                          <PhoneOutgoing className={`w-3 h-3 ${isMissed ? 'text-rose-400' : 'text-emerald-400'}`} />
-                        ) : (
-                          <PhoneIncoming className={`w-3 h-3 ${isMissed ? 'text-rose-400' : 'text-emerald-400'}`} />
-                        )}
-                        <span className="text-slate-400">
-                          {log.callType === 'video' ? 'Video' : 'Voice'} • {log.status}
-                          {log.durationSec > 0 && ` • ${formatCallDuration(log.durationSec)}`}
-                        </span>
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <div className="relative shrink-0">
+                        <img
+                          src={clinicianMatch?.avatar || (log.callerRole === 'doctor' ? '/ki_ezra_avatar.jpg' : 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80')}
+                          alt={otherPartyName}
+                          className="w-11 h-11 rounded-xl object-cover border border-slate-700 shrink-0"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className={`text-sm font-bold truncate ${isMissed ? 'text-rose-400' : 'text-white'}`}>
+                          {otherPartyName}
+                        </h4>
+                        <div className="flex items-center space-x-2 text-[11px] text-slate-400 mt-0.5">
+                          {isOutgoing ? (
+                            <span className="flex items-center space-x-1 text-emerald-400">
+                              <PhoneOutgoing className="w-3 h-3" />
+                              <span>Outgoing</span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center space-x-1 text-teal-400">
+                              <PhoneIncoming className="w-3 h-3" />
+                              <span>Incoming</span>
+                            </span>
+                          )}
+                          <span>•</span>
+                          <span className="capitalize">{log.callType} Call</span>
+                          <span>•</span>
+                          <span>{new Date(log.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-[10px] text-slate-500">
-                        {new Date(log.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                      </span>
-                      {doc && (
-                        <button
-                          onClick={() => handleStartCall(doc, log.callType)}
-                          className="p-2 rounded-xl hover:bg-slate-700 text-teal-400 transition-colors"
-                        >
-                          {log.callType === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
-                        </button>
+
+                    <div className="flex items-center space-x-2 shrink-0 ml-3">
+                      {clinicianMatch && (
+                        <>
+                          <button
+                            onClick={() => handleStartCall(clinicianMatch, 'video')}
+                            className="p-2 rounded-xl bg-teal-500/15 hover:bg-teal-500 text-teal-300 hover:text-slate-950 transition-colors"
+                            title={`Redial Video with ${clinicianMatch.name}`}
+                          >
+                            <Video className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleStartCall(clinicianMatch, 'audio')}
+                            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                            title={`Redial Audio with ${clinicianMatch.name}`}
+                          >
+                            <Phone className="w-4 h-4 text-teal-400" />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
                 );
-              })
-            ) : (
-              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-                <Phone className="w-12 h-12 mb-3 opacity-30" />
-                <p className="text-sm font-semibold">No call history yet</p>
-                <p className="text-xs mt-1">Start a call with a clinician</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  // ─── CHAT VIEW (Right Panel) ──────────────────────────────────────────────
-  const renderChatView = () => {
-    if (!selectedClinician) {
-      return (
-        <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 text-center p-8">
-          <div className="relative mb-6">
-            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-teal-500/20 to-emerald-500/20 border border-teal-500/20 flex items-center justify-center">
-              <MessageSquare className="w-10 h-10 text-teal-500 opacity-60" />
+              })}
             </div>
-          </div>
-          <h3 className="text-xl font-extrabold text-white mb-2">VitaNova Telehealth Chat</h3>
-          <p className="text-sm text-slate-400 max-w-xs leading-relaxed">
-            Select a healthcare professional to start a private, encrypted consultation chat with video & voice calling.
-          </p>
-          <div className="mt-6 flex items-center space-x-2 text-[11px] text-slate-500">
-            <span className="w-2 h-2 rounded-full bg-emerald-500/60 animate-pulse" />
-            <span>End-to-end encrypted • HIPAA compliant</span>
-          </div>
-        </div>
-      );
-    }
-
-    let previousDate = '';
-
-    return (
-      <div className="flex-1 flex flex-col bg-slate-950 h-full">
-        {/* ── Chat Header ── */}
-        <div className="flex items-center justify-between px-4 py-3 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 z-10">
-          <div className="flex items-center space-x-3">
-            {/* Back button (mobile) */}
-            <button
-              onClick={() => setSelectedClinician(null)}
-              className="md:hidden p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-
-            <div className="relative">
-              <img
-                src={selectedClinician.avatar}
-                alt={selectedClinician.name}
-                className="w-10 h-10 rounded-full object-cover border-2 border-teal-500/50"
-              />
-              {selectedClinician.available && (
-                <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900" />
-              )}
-            </div>
-
-            <div>
-              <div className="flex items-center space-x-1.5">
-                <h3 className="text-sm font-extrabold text-white">{selectedClinician.name}</h3>
-                {selectedClinician.verified && <BadgeCheck className="w-3.5 h-3.5 text-teal-400" />}
-              </div>
-              <p className="text-[11px] text-slate-400">
-                {selectedClinician.available ? (
-                  <span className="text-emerald-400 font-semibold">Online</span>
-                ) : (
-                  'Last seen recently'
-                )}{' '}
-                • {selectedClinician.specialty}
-              </p>
-            </div>
-          </div>
-
-          {/* Call Buttons */}
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => handleStartCall(selectedClinician, 'video')}
-              className="p-2.5 rounded-xl hover:bg-teal-500/15 text-teal-400 transition-all active:scale-95"
-              title="Video Call"
-            >
-              <Video className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => handleStartCall(selectedClinician, 'audio')}
-              className="p-2.5 rounded-xl hover:bg-teal-500/15 text-teal-400 transition-all active:scale-95"
-              title="Voice Call"
-            >
-              <Phone className="w-5 h-5" />
-            </button>
-            <button className="p-2.5 rounded-xl hover:bg-slate-800 text-slate-400 transition-colors">
-              <MoreVertical className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* ── Messages Area ── */}
-        <div
-          ref={chatContainerRef}
-          onScroll={handleChatScroll}
-          className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-1"
-          style={{
-            backgroundImage: `radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.03) 0%, transparent 50%)`,
-            backgroundSize: '200px 200px'
-          }}
-        >
-          {/* Welcome message if no messages */}
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="w-20 h-20 rounded-full bg-teal-500/10 border border-teal-500/20 flex items-center justify-center mb-4">
-                <img
-                  src={selectedClinician.avatar}
-                  alt={selectedClinician.name}
-                  className="w-16 h-16 rounded-full object-cover"
-                />
-              </div>
-              <h4 className="text-base font-bold text-white mb-1">{selectedClinician.name}</h4>
-              <p className="text-xs text-slate-400 mb-1">{selectedClinician.specialty}</p>
-              <p className="text-xs text-slate-500 max-w-xs leading-relaxed mt-2">
-                Messages are encrypted end-to-end. Start a confidential telehealth consultation now.
-              </p>
-
-              {/* Quick action buttons */}
-              <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
-                {[
-                  'Hello Doctor, I need a consultation',
-                  'I have a question about my medication',
-                  'Can we schedule a follow-up?'
-                ].map((q, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setChatDraft(q)}
-                    className="px-3 py-2 rounded-2xl bg-slate-800/60 border border-slate-700/50 text-[11px] text-slate-300 hover:bg-slate-700 hover:text-white transition-all"
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+              <Phone className="w-12 h-12 mb-3 opacity-30 text-teal-400" />
+              <p className="text-sm font-bold text-white">No Recent Calls Recorded</p>
+              <p className="text-xs mt-1 text-slate-400">Calls initiated via Video or Audio will be recorded here.</p>
             </div>
           )}
+        </div>
+      )}
 
-          {/* Message Bubbles */}
-          {messages.map((msg, i) => {
-            const isMe = msg.senderId === currentUserId;
-            const dateKey = getDateKey(msg.createdAt);
-            let showDateSep = false;
-            if (dateKey !== previousDate) {
-              showDateSep = true;
-              previousDate = dateKey;
-            }
+      {/* ── 3. CHATS TAB ── */}
+      {viewTab === 'chats' && (
+        <div className="flex h-[calc(100vh-230px)] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/80 shadow-2xl">
+          {/* Sidebar */}
+          <div
+            className={`${
+              selectedClinician ? 'hidden md:flex' : 'flex'
+            } w-full md:w-80 lg:w-96 flex-col border-r border-slate-800/60 shrink-0 bg-slate-900`}
+          >
+            <div className="px-4 pt-4 pb-3 border-b border-slate-800">
+              <h2 className="text-base font-extrabold text-white">
+                {currentUserRole === 'doctor' ? 'Customer Conversations' : 'Practitioner Messages'}
+              </h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {currentUserRole === 'doctor'
+                  ? 'Patients who have consulted or talked with you'
+                  : 'Encrypted direct messaging with clinicians'}
+              </p>
+            </div>
 
-            return (
-              <React.Fragment key={msg.id}>
-                {/* Date Separator */}
-                {showDateSep && (
-                  <div className="flex items-center justify-center py-3">
-                    <span className="px-3 py-1 rounded-lg bg-slate-800/80 text-[10px] text-slate-400 font-bold shadow-sm">
-                      {formatDateSeparator(msg.createdAt)}
-                    </span>
-                  </div>
-                )}
-
-                {/* System / Call Event Messages */}
-                {msg.messageType === 'system' || msg.messageType === 'call_event' ? (
-                  <div className="flex items-center justify-center py-2">
-                    <div className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-800/50 border border-slate-700/30">
-                      {msg.callType === 'video' ? (
-                        <Video className="w-3.5 h-3.5 text-teal-400" />
-                      ) : msg.callType === 'audio' ? (
-                        <Phone className="w-3.5 h-3.5 text-teal-400" />
-                      ) : null}
-                      <span className="text-[11px] text-slate-400">{msg.content}</span>
-                      {msg.callDurationSec && msg.callDurationSec > 0 && (
-                        <span className="text-[10px] text-slate-500">• {formatCallDuration(msg.callDurationSec)}</span>
-                      )}
-                    </div>
-                  </div>
+            <div className="flex-1 overflow-y-auto">
+              {currentUserRole === 'doctor' ? (
+                /* Doctor view: ONLY customers talked to */
+                talkedCustomers.length > 0 ? (
+                  talkedCustomers.map((cust) => {
+                    const isSelected = selectedClinician?.id === cust.id;
+                    return (
+                      <button
+                        key={cust.id}
+                        onClick={() =>
+                          setSelectedClinician({
+                            id: cust.id,
+                            name: cust.name,
+                            avatar: cust.avatar,
+                            profession: 'Doctor' as any,
+                            specialty: 'Patient Consultation',
+                            experienceYears: 0,
+                            verified: true,
+                            available: true,
+                            feeUGX: 0,
+                            bio: 'Consultation Patient',
+                            languages: ['English'],
+                            rating: 5.0,
+                            reviewCount: 0
+                          })
+                        }
+                        className={`w-full flex items-center space-x-3 px-4 py-3.5 transition-all border-b border-slate-800/50 text-left ${
+                          isSelected ? 'bg-teal-500/15 border-l-2 border-l-teal-500' : 'hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <img
+                          src={cust.avatar}
+                          alt={cust.name}
+                          className="w-11 h-11 rounded-full object-cover border border-slate-700 shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-bold text-white truncate">{cust.name}</span>
+                            {cust.lastTime && <span className="text-[10px] text-slate-500">{cust.lastTime}</span>}
+                          </div>
+                          <p className="text-xs text-slate-400 truncate mt-0.5">{cust.lastMessage || 'Patient in consult'}</p>
+                        </div>
+                      </button>
+                    );
+                  })
                 ) : (
-                  /* Regular Message Bubble */
-                  <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} mb-0.5`}>
-                    <div
-                      className={`relative max-w-[80%] sm:max-w-[70%] px-3.5 py-2.5 shadow-sm ${
-                        isMe
-                          ? 'bg-teal-600 text-white rounded-2xl rounded-br-md'
-                          : 'bg-slate-800 text-slate-100 border border-slate-700/50 rounded-2xl rounded-bl-md'
+                  <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-slate-500">
+                    <Users className="w-10 h-10 mb-2 opacity-30 text-teal-400" />
+                    <p className="text-xs font-bold text-slate-300">No Customers Talked To Yet</p>
+                    <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">
+                      Patients who reach out to you via call or message will appear here.
+                    </p>
+                  </div>
+                )
+              ) : (
+                /* Patient view: Clinicians to message */
+                filteredClinicians.map((doc) => {
+                  const lastMsg = lastMessages[doc.id];
+                  const unread = unreadCounts[doc.id] || 0;
+                  const isSelected = selectedClinician?.id === doc.id;
+
+                  return (
+                    <button
+                      key={doc.id}
+                      onClick={() => setSelectedClinician(doc)}
+                      className={`w-full flex items-center space-x-3 px-4 py-3.5 transition-all border-b border-slate-800/50 text-left ${
+                        isSelected ? 'bg-teal-500/15 border-l-2 border-l-teal-500' : 'hover:bg-slate-800/50'
                       }`}
                     >
-                      {/* Sender name (for received messages) */}
-                      {!isMe && (
-                        <p className="text-[10px] font-bold text-teal-400 mb-0.5">{msg.senderName}</p>
-                      )}
-
-                      {/* Media preview */}
-                      {msg.mediaUrl && msg.messageType === 'image' && (
+                      <div className="relative shrink-0">
                         <img
-                          src={msg.mediaUrl}
-                          alt="Shared image"
-                          className="rounded-xl mb-2 max-h-64 object-cover w-full"
+                          src={doc.avatar}
+                          alt={doc.name}
+                          className="w-11 h-11 rounded-full object-cover border border-slate-700"
                         />
-                      )}
-
-                      {/* Message text */}
-                      <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
-
-                      {/* Time + read receipts */}
-                      <div className={`flex items-center justify-end space-x-1 mt-1 ${isMe ? 'text-teal-200/70' : 'text-slate-500'}`}>
-                        <span className="text-[9px]">{formatMessageTime(msg.createdAt)}</span>
-                        {isMe && (
-                          msg.isRead ? (
-                            <CheckCheck className="w-3 h-3 text-sky-300" />
-                          ) : msg.isDelivered ? (
-                            <CheckCheck className="w-3 h-3" />
-                          ) : (
-                            <Check className="w-3 h-3" />
-                          )
+                        {doc.available && (
+                          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900" />
                         )}
                       </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-bold text-white truncate">{doc.name}</span>
+                          {lastMsg && <span className="text-[10px] text-slate-500">{lastMsg.time}</span>}
+                        </div>
+                        <p className="text-xs text-slate-400 truncate mt-0.5">{lastMsg ? lastMsg.text : doc.specialty}</p>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Chat Panel */}
+          <div className={`${selectedClinician ? 'flex' : 'hidden md:flex'} flex-1 flex-col relative bg-slate-950`}>
+            {selectedClinician ? (
+              <div className="flex-1 flex flex-col h-full">
+                {/* Chat Header */}
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800">
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <button
+                      onClick={() => setSelectedClinician(null)}
+                      className="md:hidden p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <img
+                      src={selectedClinician.avatar}
+                      alt={selectedClinician.name}
+                      className="w-10 h-10 rounded-full object-cover border border-teal-500/50"
+                    />
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-white truncate">{selectedClinician.name}</h3>
+                      <p className="text-[11px] text-teal-400 font-semibold truncate">{selectedClinician.specialty}</p>
                     </div>
                   </div>
-                )}
-              </React.Fragment>
-            );
-          })}
 
-          <div ref={messagesEndRef} />
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      onClick={() => handleStartCall(selectedClinician, 'video')}
+                      className="p-2 rounded-xl bg-teal-500/10 hover:bg-teal-500 text-teal-300 hover:text-slate-950 transition-colors"
+                      title="Video Call"
+                    >
+                      <Video className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleStartCall(selectedClinician, 'audio')}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                      title="Audio Call"
+                    >
+                      <Phone className="w-4 h-4 text-teal-400" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Messages Body */}
+                <div
+                  ref={chatContainerRef}
+                  onScroll={handleChatScroll}
+                  className="flex-1 overflow-y-auto p-4 space-y-3"
+                >
+                  {messages.length > 0 ? (
+                    messages.map((msg) => {
+                      const isMe = msg.senderId === currentUserId;
+                      return (
+                        <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                          <div
+                            className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-xs ${
+                              isMe
+                                ? 'bg-teal-600 text-white rounded-br-none shadow-sm'
+                                : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-none shadow-sm'
+                            }`}
+                          >
+                            <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                            <span className="text-[9.5px] opacity-70 block text-right mt-1">
+                              {formatMessageTime(msg.createdAt)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-20 text-slate-500 text-center">
+                      <MessageSquare className="w-10 h-10 mb-2 opacity-30 text-teal-400" />
+                      <p className="text-xs font-semibold text-slate-400">Encrypted Consultation Channel</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Send a message to start direct communication.</p>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input form */}
+                <form onSubmit={handleSendMessage} className="p-3 bg-slate-900 border-t border-slate-800 flex items-center space-x-2">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={chatDraft}
+                    onChange={(e) => setChatDraft(e.target.value)}
+                    placeholder="Type encrypted message..."
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSending || !chatDraft.trim()}
+                    className="p-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-50 text-slate-950 font-bold transition-all"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-500">
+                <MessageSquare className="w-12 h-12 mb-3 text-teal-400 opacity-40" />
+                <h3 className="text-base font-bold text-white">VitaNova Telehealth Chat</h3>
+                <p className="text-xs text-slate-400 max-w-xs mt-1">
+                  Select a practitioner or customer conversation to begin messaging.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
+      )}
 
-        {/* Scroll to bottom FAB */}
-        {showScrollDown && (
-          <button
-            onClick={() => scrollToBottom()}
-            className="absolute bottom-24 right-6 p-2.5 rounded-full bg-slate-800 border border-slate-700 text-white shadow-xl hover:bg-slate-700 transition-all z-20"
-          >
-            <ArrowDown className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* ── Message Input Bar ── */}
-        <div className="border-t border-slate-800 bg-slate-900/95 backdrop-blur-md p-2 sm:p-3">
-          <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
-            {/* Attachment button */}
-            <button
-              type="button"
-              className="p-2.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-teal-400 transition-colors"
-              title="Attach file"
-            >
-              <Paperclip className="w-5 h-5" />
-            </button>
-
-            {/* Text input */}
-            <div className="flex-1 relative">
-              <input
-                ref={inputRef}
-                type="text"
-                value={chatDraft}
-                onChange={(e) => setChatDraft(e.target.value)}
-                placeholder="Type a message..."
-                className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500/50 transition-colors pr-10"
-                disabled={isSending}
-              />
+      {/* ── Booking Modal for Nurses, Midwives & Physiotherapists ── */}
+      {selectedWorkerForBooking && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-white">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-3">
+                <img
+                  src={selectedWorkerForBooking.avatar}
+                  alt={selectedWorkerForBooking.name}
+                  className="w-12 h-12 rounded-2xl object-cover border border-slate-700"
+                />
+                <div>
+                  <h3 className="text-sm font-extrabold text-white">{selectedWorkerForBooking.name}</h3>
+                  <span className="inline-block text-[11px] font-bold text-teal-300 bg-teal-500/20 px-2 py-0.5 rounded-full border border-teal-500/30">
+                    {selectedWorkerForBooking.profession}
+                  </span>
+                </div>
+              </div>
               <button
-                type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                onClick={() => setSelectedWorkerForBooking(null)}
+                className="text-slate-400 hover:text-white p-1"
               >
-                <Smile className="w-5 h-5" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Send / Mic button */}
-            {chatDraft.trim() ? (
-              <button
-                type="submit"
-                disabled={isSending}
-                className="p-3 rounded-2xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold transition-all active:scale-95 disabled:opacity-50 shadow-lg shadow-teal-500/20"
-              >
-                <Send className="w-5 h-5" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="p-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700 transition-colors"
-                title="Voice message"
-              >
-                <Mic className="w-5 h-5" />
-              </button>
-            )}
-          </form>
+            <form onSubmit={handleConfirmBooking} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-300 mb-1 flex items-center space-x-1">
+                  <Calendar className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Preferred Date</span>
+                </label>
+                <input
+                  type="date"
+                  value={bookingDate}
+                  onChange={(e) => setBookingDate(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300 mb-1 flex items-center space-x-1">
+                  <MapPin className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Home Visit Address (Kampala / Wakiso)</span>
+                </label>
+                <input
+                  type="text"
+                  value={bookingAddress}
+                  onChange={(e) => setBookingAddress(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium"
+                  placeholder="Plot 14, Ntinda-Nakawa Road"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300 mb-1 flex items-center space-x-1">
+                  <Clock className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Care Notes / Reason for Visit</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={bookingNotes}
+                  onChange={(e) => setBookingNotes(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium resize-none"
+                  placeholder="Describe needed care: e.g. Postpartum counseling, wound dressing, or mobility rehab."
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setSelectedWorkerForBooking(null)}
+                  className="px-4 py-2 rounded-xl font-bold text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingBooking}
+                  className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 font-bold shadow-md shadow-teal-500/20 flex items-center space-x-1.5"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>{isSubmittingBooking ? 'Booking...' : 'Confirm Appointment'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
-    );
-  };
-
-  // ─── MAIN LAYOUT ──────────────────────────────────────────────────────────
-  return (
-    <div className="flex h-[calc(100vh-180px)] sm:h-[calc(100vh-140px)] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/60 shadow-2xl">
-      {/* Sidebar — hidden on mobile when chat is open */}
-      <div
-        className={`${
-          selectedClinician ? 'hidden md:flex' : 'flex'
-        } w-full md:w-80 lg:w-96 flex-col border-r border-slate-800/60 shrink-0`}
-      >
-        {renderConversationList()}
-      </div>
-
-      {/* Chat Area — full width on mobile */}
-      <div
-        className={`${
-          selectedClinician ? 'flex' : 'hidden md:flex'
-        } flex-1 flex-col relative`}
-      >
-        {renderChatView()}
-      </div>
+      )}
     </div>
   );
 };

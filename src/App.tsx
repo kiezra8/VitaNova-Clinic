@@ -125,7 +125,7 @@ export const DEFAULT_CLINICIANS: HealthcareWorker[] = [
     verified: true,
     available: true,
     feeUGX: 25000,
-    avatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+    avatar: 'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg',
     phone: '+256 774 229 881',
     whatsapp: '+256 774 229 881',
     email: 'florence.nabatanzi@vitanova.ug',
@@ -243,7 +243,12 @@ export const App: React.FC = () => {
           DEFAULT_CLINICIANS.forEach((d) => {
             if (!ids.has(d.id)) merged.push(d);
           });
-          return merged;
+          // Self-heal any broken legacy avatar for Sister Florence Nabatanzi
+          return merged.map((c: HealthcareWorker) =>
+            c.id === 'nurse_florence' || c.name.toLowerCase().includes('nabatanzi')
+              ? { ...c, avatar: 'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg' }
+              : c
+          );
         }
       }
     } catch (_) {}
@@ -901,9 +906,55 @@ export const App: React.FC = () => {
     }).catch(() => {
       console.warn('[VitaNova] Could not reach Supabase to signal call.');
     });
+
+    // Record Call in Local History & Doctor Customers
+    try {
+      const callerId = isDoctorLoggedIn ? (loggedInDoctor?.id || 'doc_israel') : (patient?.id || 'pat_sarah_001');
+      const rawCalls = localStorage.getItem('vitanova_recent_calls');
+      const existingCalls = rawCalls ? JSON.parse(rawCalls) : [];
+      const newLog = {
+        id: `call_${Date.now()}`,
+        callerId,
+        callerName: callerDisplayName,
+        callerRole: isDoctorLoggedIn ? 'doctor' : 'patient',
+        calleeId: clinician.id,
+        calleeName: clinician.name,
+        calleeRole: clinician.profession?.toLowerCase() === 'doctor' ? 'doctor' : 'nurse',
+        callType: type,
+        status: 'completed',
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        durationSec: 120,
+        sessionId: newSessionId
+      };
+      localStorage.setItem('vitanova_recent_calls', JSON.stringify([newLog, ...existingCalls]));
+
+      // Record Customer for Doctor
+      const doctorId = isDoctorLoggedIn ? (loggedInDoctor?.id || 'doc_israel') : clinician.id;
+      const customerId = isDoctorLoggedIn ? clinician.id : callerId;
+      const customerName = isDoctorLoggedIn ? clinician.name : callerDisplayName;
+      const customerAvatar = isDoctorLoggedIn ? clinician.avatar : ((patient as any)?.avatar || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80');
+
+      const custKey = `vitanova_doctor_customers_${doctorId}`;
+      const rawCusts = localStorage.getItem(custKey);
+      const custs = rawCusts ? JSON.parse(rawCusts) : [];
+      if (!custs.some((c: any) => c.id === customerId)) {
+        custs.unshift({
+          id: customerId,
+          name: customerName,
+          avatar: customerAvatar,
+          lastInteraction: new Date().toISOString(),
+          lastType: `${type.toUpperCase()} Call`
+        });
+        localStorage.setItem(custKey, JSON.stringify(custs));
+      }
+    } catch (_) {}
   };
 
-  const handleOpenDirectChat = (_clinician: HealthcareWorker) => {
+  const [directChatTarget, setDirectChatTarget] = useState<HealthcareWorker | null>(null);
+
+  const handleOpenDirectChat = (clinician: HealthcareWorker) => {
+    setDirectChatTarget(clinician);
     setActiveTab('consultation');
   };
 
@@ -1048,6 +1099,8 @@ export const App: React.FC = () => {
             currentUserId={isDoctorLoggedIn ? (loggedInDoctor?.id || 'doc_israel') : (patient?.id || 'pat_user')}
             currentUserName={isDoctorLoggedIn ? (loggedInDoctor?.name || 'Dr. Israel Kisakye') : (patient?.fullName || 'Patient')}
             currentUserRole={isDoctorLoggedIn ? 'doctor' : 'patient'}
+            onRequestHomeCare={handleRequestHomeCare}
+            directChatClinician={directChatTarget}
           />
         )}
 
@@ -1059,6 +1112,7 @@ export const App: React.FC = () => {
             onRequestHomeCare={handleRequestHomeCare}
             onCompleteVisit={handleCompleteVisit}
             networkState={networkState}
+            clinicians={clinicians}
           />
         )}
 

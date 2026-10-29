@@ -199,7 +199,7 @@ export const PublicLandingView: React.FC<PublicLandingProps> = ({
             <div className="space-y-4">
               <div className="relative">
                 <img
-                  src="https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80"
+                  src="https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg"
                   alt="Sister Florence Nabatanzi"
                   className="w-full h-44 object-cover rounded-xl"
                 />

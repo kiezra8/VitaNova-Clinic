@@ -87,7 +87,7 @@ const defaultPatientRecords: MedicalRecordEntry[] = [
     description: 'Conducted home clinical assessment in Nakawa. Verified medication storage and adherence. Demonstrated self-monitoring technique with digital sphygmomanometer. Dietary potassium and sodium guidelines reinforced.',
     doctorName: 'Sister Florence Nabatanzi',
     doctorRole: 'Senior Community Health Nurse',
-    doctorAvatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+    doctorAvatar: 'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg',
     clinicBranch: 'VitaNova Mobile Community Outreach',
     syncStatus: 'synced',
     auditTrail: {
@@ -163,7 +163,7 @@ const defaultPatientRecords: MedicalRecordEntry[] = [
     description: 'Administered 0.5 mL Tetanus Toxoid Vaccine (Batch #TT-UG-991, Expiry: 10/2028) IM in left deltoid. Administered Pfizer-BioNTech Bivalent Booster 0.3 mL IM in right deltoid. Patient monitored for 20 minutes with zero hypersensitivity or anaphylaxis.',
     doctorName: 'Sister Florence Nabatanzi',
     doctorRole: 'Senior Community Health Nurse',
-    doctorAvatar: 'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+    doctorAvatar: 'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg',
     clinicBranch: 'VitaNova Immunization Unit',
     syncStatus: 'synced',
     auditTrail: {

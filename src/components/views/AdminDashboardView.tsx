@@ -21,7 +21,8 @@ import {
   X,
   Stethoscope,
   BadgeCheck,
-  Video
+  Video,
+  Trash2
 } from 'lucide-react';
 import { SyncOutboxItem, HealthcareWorker } from '../../types';
 import { signUpDoctor, upsertClinician } from '../../lib/supabase';
@@ -155,7 +156,18 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     onUpdateClinicians(updatedList);
     setEditingDoctor(null);
     setDocAvatarFile(null);
-    setSaveSuccessMsg(`Doctor account updated & synced to Supabase for ${docName}!`);
+    setSaveSuccessMsg(`Staff account updated & synced for ${docName}!`);
+    setTimeout(() => setSaveSuccessMsg(null), 3500);
+  };
+
+  const handleDeleteClinician = (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to permanently remove ${name} from VitaNova Clinic staff?`)) {
+      return;
+    }
+    if (!onUpdateClinicians) return;
+    const updated = clinicians.filter((c) => c.id !== id);
+    onUpdateClinicians(updated);
+    setSaveSuccessMsg(`${name} removed successfully.`);
     setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
 
@@ -372,6 +384,15 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                   <span>Edit Account</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDeleteClinician(doc.id, doc.name)}
+                  className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/20 transition-colors"
+                  title={`Delete ${doc.name}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
 
                 {onTestCall && (
@@ -601,13 +622,15 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Doctor Photo / Avatar</label>
+                <label className="block text-slate-400 font-semibold mb-1">
+                  Staff Photo (Choose from Phone Gallery or Camera)
+                </label>
                 <div className="flex items-center space-x-3">
                   {docAvatar && (
                     <img
                       src={docAvatar}
-                      alt="Doctor Preview"
-                      className="w-12 h-12 rounded-xl object-cover border border-teal-500/50 shadow shrink-0"
+                      alt="Staff Preview"
+                      className="w-14 h-14 rounded-2xl object-cover border-2 border-teal-500 shadow-md shrink-0"
                     />
                   )}
                   <input
@@ -617,29 +640,50 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
                       const file = e.target.files?.[0];
                       if (file) {
                         setDocAvatarFile(file);
-                        setDocAvatar(URL.createObjectURL(file));
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          if (ev.target?.result) {
+                            setDocAvatar(ev.target.result as string);
+                          }
+                        };
+                        reader.readAsDataURL(file);
                       }
                     }}
-                    className="text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-teal-500/20 file:text-teal-300 hover:file:bg-teal-500/30 cursor-pointer"
+                    className="text-xs text-slate-300 file:mr-2 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-teal-500/20 file:text-teal-300 hover:file:bg-teal-500 hover:file:text-slate-950 cursor-pointer"
                   />
                 </div>
+                <p className="text-[10px] text-slate-500 mt-1">Tap to select directly from your phone gallery or take a photo.</p>
               </div>
 
-              <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-800">
+              <div className="pt-3 flex items-center justify-between border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditingDoctor(null)}
-                  className="px-3.5 py-2 rounded-xl text-slate-400 hover:text-white"
+                  onClick={() => {
+                    handleDeleteClinician(editingDoctor.id, editingDoctor.name);
+                    setEditingDoctor(null);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs flex items-center space-x-1.5 transition-colors"
                 >
-                  Cancel
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Staff</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold flex items-center space-x-1.5 shadow-md shadow-teal-500/20"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Save Phone & Contact</span>
-                </button>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingDoctor(null)}
+                    className="px-3.5 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs flex items-center space-x-1.5 shadow-md shadow-teal-500/20"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Save Changes</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -764,13 +808,15 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Doctor Photo / Avatar</label>
+                <label className="block text-slate-400 font-semibold mb-1">
+                  Staff Photo (Choose from Phone Gallery or Camera)
+                </label>
                 <div className="flex items-center space-x-3">
                   {docAvatar && (
                     <img
                       src={docAvatar}
-                      alt="Doctor Preview"
-                      className="w-12 h-12 rounded-xl object-cover border border-teal-500/50 shadow shrink-0"
+                      alt="Staff Preview"
+                      className="w-14 h-14 rounded-2xl object-cover border-2 border-teal-500 shadow-md shrink-0"
                     />
                   )}
                   <input
@@ -780,12 +826,19 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
                       const file = e.target.files?.[0];
                       if (file) {
                         setDocAvatarFile(file);
-                        setDocAvatar(URL.createObjectURL(file));
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          if (ev.target?.result) {
+                            setDocAvatar(ev.target.result as string);
+                          }
+                        };
+                        reader.readAsDataURL(file);
                       }
                     }}
-                    className="text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-teal-500/20 file:text-teal-300 hover:file:bg-teal-500/30 cursor-pointer"
+                    className="text-xs text-slate-300 file:mr-2 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-teal-500/20 file:text-teal-300 hover:file:bg-teal-500 hover:file:text-slate-950 cursor-pointer"
                   />
                 </div>
+                <p className="text-[10px] text-slate-500 mt-1">Tap to select directly from your phone gallery or take a photo.</p>
               </div>
 
               <div>
