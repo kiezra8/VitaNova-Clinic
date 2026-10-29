@@ -48,9 +48,12 @@ import {
   signOutDoctor,
   onAuthChange,
   fetchClinicianByEmail,
-  upsertClinician
+  upsertClinician,
+  createCallLog,
+  updateCallLog,
+  supabase
 } from './lib/supabase';
-import { Phone, PhoneOff, Video } from 'lucide-react';
+import { Phone, PhoneOff, Video, X } from 'lucide-react';
 import { startIncomingCallTone, stopIncomingCallTone } from './lib/callSounds';
 
 // Default verified Ugandan clinicians registry — Dr. Israel Kisakye as Lead Director
@@ -590,20 +593,42 @@ export const App: React.FC = () => {
     clinician: HealthcareWorker;
     callType: 'video' | 'audio';
     sessionId?: string;
+    patientDetails?: {
+      complaint?: string;
+      age?: string;
+      phone?: string;
+      name?: string;
+    };
   } | null>(null);
 
-  // ── Incoming call listener — Supabase Realtime + BroadcastChannel (Cross-Device & Cross-Tab) ──
+  // Pre-Call Details Modal State (Asks patient for details before initiating call)
+  const [pendingCallForDetails, setPendingCallForDetails] = useState<{
+    clinician: HealthcareWorker;
+    type: 'video' | 'audio';
+  } | null>(null);
+  const [preCallForm, setPreCallForm] = useState({
+    name: '',
+    complaint: '',
+    age: '',
+    phone: ''
+  });
+
+  // ── Incoming call listener — Supabase Realtime + DB Polling + BroadcastChannel (Cross-Device & Cross-Tab) ──
   useEffect(() => {
-    if (!isDoctorLoggedIn) return;
+    // Allows receiving calls if logged in as doctor, in doctor role, admin, or Dr. Israel
+    const canReceiveDoctorCalls = isDoctorLoggedIn || currentRole === 'doctor' || isAdmin;
+    if (!canReceiveDoctorCalls) return;
 
     const handleIncomingSignal = (
       callerName: string,
       type: 'video' | 'audio',
       targetDoc: HealthcareWorker,
-      callSessionId?: string
+      callSessionId?: string,
+      patientDetails?: { complaint?: string; age?: string; phone?: string; name?: string }
     ) => {
-      // When Dr. Israel Kisakye is signed in, ring whenever a call targets Dr. Israel Kisakye
-      // or if Dr. Israel is the active on-duty telehealth consultant
+      // Prevent caller from ringing itself
+      if (activeCallSessionId && activeCallSessionId === callSessionId) return;
+
       const isTargetDrIsrael =
         targetDoc.id === 'doc_israel' ||
         (targetDoc.email && targetDoc.email.toLowerCase().includes('israel')) ||
@@ -621,7 +646,8 @@ export const App: React.FC = () => {
           callerName: callerName || 'VitaNova Patient',
           clinician: targetDoc,
           callType: type,
-          sessionId: callSessionId
+          sessionId: callSessionId,
+          patientDetails
         });
         startIncomingCallTone();
       }
@@ -641,7 +667,7 @@ export const App: React.FC = () => {
         if (!data) return;
         if (data.type === 'INCOMING_CALL') {
           const doc = uniqueDocMap.get(data.clinicianId) || DEFAULT_CLINICIANS[0];
-          handleIncomingSignal(data.callerName, data.callType, doc, data.sessionId);
+          handleIncomingSignal(data.callerName, data.callType, doc, data.sessionId, data.patientDetails);
         } else if (data.type === 'CALL_ENDED' || data.type === 'DECLINE') {
           stopIncomingCallTone();
           setIncomingCall(null);
@@ -654,7 +680,8 @@ export const App: React.FC = () => {
     uniqueDocMap.forEach((doc, docId) => {
       const unsub = subscribeToCallSignals(docId, (signal) => {
         if (signal.signalType === 'INCOMING_CALL') {
-          handleIncomingSignal(signal.callerName, signal.callType, doc, signal.sessionId);
+          const pDetails = (signal.payload as any)?.patientDetails;
+          handleIncomingSignal(signal.callerName, signal.callType, doc, signal.sessionId, pDetails);
         } else if (signal.signalType === 'DECLINE' || signal.signalType === 'HANGUP') {
           stopIncomingCallTone();
           setIncomingCall(null);
@@ -663,36 +690,44 @@ export const App: React.FC = () => {
       if (unsub) unsubscribers.push(unsub);
     });
 
-    // 3. Local Express SSE stream (cross-browser, incognito, and cross-device ring listener)
-    let sseGlobal: EventSource | null = null;
-    try {
-      sseGlobal = new EventSource('/api/calls/stream-global');
-      sseGlobal.addEventListener('app_signal', (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (!data) return;
-          if (data.type === 'INCOMING_CALL') {
-            const doc = uniqueDocMap.get(data.clinicianId) || DEFAULT_CLINICIANS[0];
-            handleIncomingSignal(data.callerName, data.callType, doc, data.sessionId);
-          } else if (data.type === 'CALL_ENDED' || data.type === 'DECLINE' || data.type === 'HANGUP') {
-            stopIncomingCallTone();
-            setIncomingCall(null);
+    // 3. Robust Supabase DB Polling Fallback (ensures mobile phones on 4G/LTE never miss incoming calls)
+    const handledIncomingIds = new Set<string>();
+    const ringPollInterval = setInterval(async () => {
+      try {
+        const targetIds = Array.from(uniqueDocMap.keys());
+        const cutoff = new Date(Date.now() - 15000).toISOString();
+        const { data, error } = await supabase
+          .from('call_signals')
+          .select('*')
+          .in('target_clinician_id', targetIds)
+          .eq('signal_type', 'INCOMING_CALL')
+          .gt('created_at', cutoff)
+          .order('created_at', { ascending: false })
+          .limit(3);
+
+        if (!error && data && data.length > 0) {
+          for (const row of data) {
+            if (handledIncomingIds.has(row.id)) continue;
+            handledIncomingIds.add(row.id);
+            const p = (row.payload as any) || {};
+            const sid = row.session_id || p.sessionId;
+            if (sid && sid === activeCallSessionId) continue; // Don't ring caller's own session
+            const doc = uniqueDocMap.get(row.target_clinician_id) || DEFAULT_CLINICIANS[0];
+            handleIncomingSignal(row.caller_name, (row.call_type as any) || 'video', doc, sid, p.patientDetails);
           }
-        } catch (_) {}
-      });
-    } catch (_) {}
+        }
+      } catch (_) {}
+    }, 1500);
 
     return () => {
       stopIncomingCallTone();
+      clearInterval(ringPollInterval);
       if (bChan) {
         try { bChan.close(); } catch (_) {}
       }
-      if (sseGlobal) {
-        try { sseGlobal.close(); } catch (_) {}
-      }
       unsubscribers.forEach((u) => u());
     };
-  }, [isDoctorLoggedIn, loggedInDoctor, clinicians]);
+  }, [isDoctorLoggedIn, currentRole, isAdmin, loggedInDoctor, clinicians, activeCallSessionId]);
 
   const handleUpdateClinicians = async (updated: HealthcareWorker[]) => {
     setClinicians(updated);
@@ -851,8 +886,26 @@ export const App: React.FC = () => {
     setActiveCallSessionId(null);
   }, []);
 
-  // Direct In-App Call Initiation — Instant 1-tap call for patients & doctors
+  // Direct In-App Call Initiation — Asks patient for details before calling
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
+    if (isDoctorLoggedIn) {
+      executeCall(clinician, type);
+    } else {
+      setPreCallForm({
+        name: patient?.fullName?.trim() || 'Sarah Namubiru',
+        complaint: '',
+        age: (patient as any)?.age ? String((patient as any).age) : '',
+        phone: (patient as any)?.phone || ''
+      });
+      setPendingCallForDetails({ clinician, type });
+    }
+  };
+
+  const executeCall = (
+    clinician: HealthcareWorker,
+    type: 'video' | 'audio',
+    details?: { name?: string; complaint?: string; age?: string; phone?: string }
+  ) => {
     const newSessionId = `vitanova_call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     setActiveCallSessionId(newSessionId);
     setActiveCallClinician(clinician);
@@ -860,7 +913,7 @@ export const App: React.FC = () => {
 
     const callerDisplayName = isDoctorLoggedIn
       ? (loggedInDoctor?.name || 'Dr. Israel Kisakye')
-      : (patient?.fullName?.trim() || 'Patient');
+      : (details?.name?.trim() || patient?.fullName?.trim() || 'Patient');
     setActiveCallerName(callerDisplayName);
 
     // Broadcast across same device tabs via BroadcastChannel (instant zero-delay ring)
@@ -871,7 +924,8 @@ export const App: React.FC = () => {
         callerName: callerDisplayName,
         clinicianId: clinician.id,
         callType: type,
-        sessionId: newSessionId
+        sessionId: newSessionId,
+        patientDetails: details
       });
       setTimeout(() => {
         try { bChan.close(); } catch (_) {}
@@ -889,7 +943,8 @@ export const App: React.FC = () => {
           clinicianId: clinician.id,
           callType: type,
           sessionId: newSessionId,
-          targetClinicianId: clinician.id
+          targetClinicianId: clinician.id,
+          patientDetails: details
         })
       }).catch(() => {});
     } catch (_) {}
@@ -901,12 +956,15 @@ export const App: React.FC = () => {
       callerName: callerDisplayName,
       targetClinicianId: clinician.id,
       callType: type,
-      sessionId: newSessionId
+      sessionId: newSessionId,
+      payload: {
+        patientDetails: details
+      }
     }).catch(() => {
       console.warn('[VitaNova] Could not reach Supabase to signal call.');
     });
 
-    // Record Call in Local History & Doctor Customers
+    // Record Call in Local History, Supabase call_logs, & Doctor Customers
     try {
       const callerId = isDoctorLoggedIn ? (loggedInDoctor?.id || 'doc_israel') : (patient?.id || 'pat_sarah_001');
       const rawCalls = localStorage.getItem('vitanova_recent_calls');
@@ -923,10 +981,22 @@ export const App: React.FC = () => {
         status: 'completed',
         startedAt: new Date().toISOString(),
         endedAt: new Date().toISOString(),
-        durationSec: 120,
-        sessionId: newSessionId
+        durationSec: 0,
+        sessionId: newSessionId,
+        patientDetails: details
       };
       localStorage.setItem('vitanova_recent_calls', JSON.stringify([newLog, ...existingCalls]));
+
+      // Persist to Supabase call_logs table for permanent cross-device history
+      createCallLog({
+        callerId,
+        callerName: callerDisplayName,
+        callerRole: isDoctorLoggedIn ? 'doctor' : 'patient',
+        calleeId: clinician.id,
+        calleeName: clinician.name,
+        callType: type,
+        sessionId: newSessionId
+      }).catch(() => {});
 
       // Record Customer for Doctor
       const doctorId = isDoctorLoggedIn ? (loggedInDoctor?.id || 'doc_israel') : clinician.id;
@@ -1272,8 +1342,27 @@ export const App: React.FC = () => {
             </p>
 
             {/* Caller name */}
-            <h2 className="text-2xl font-black text-white tracking-tight">{incomingCall.callerName}</h2>
-            <p className="text-xs text-slate-400 mt-0.5">VitaNova Patient Line</p>
+            <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{incomingCall.callerName}</h2>
+
+            {incomingCall.patientDetails?.complaint ? (
+              <div className="mt-3 p-3 bg-slate-800/90 rounded-2xl border border-slate-700/80 text-left space-y-1">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-teal-400 block">
+                  Patient Complaint
+                </span>
+                <p className="text-xs font-semibold text-white leading-snug">
+                  {incomingCall.patientDetails.complaint}
+                </p>
+                {(incomingCall.patientDetails.age || incomingCall.patientDetails.phone) && (
+                  <div className="flex items-center space-x-2 text-[10px] text-slate-400 pt-1 border-t border-slate-700/50">
+                    {incomingCall.patientDetails.age && <span>Age: {incomingCall.patientDetails.age} yrs</span>}
+                    {incomingCall.patientDetails.age && incomingCall.patientDetails.phone && <span>•</span>}
+                    {incomingCall.patientDetails.phone && <span>Tel: {incomingCall.patientDetails.phone}</span>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 mt-0.5">VitaNova Patient Line</p>
+            )}
 
             {/* Answer / Decline */}
             <div className="flex items-center justify-center space-x-12 mt-10">
@@ -1318,6 +1407,119 @@ export const App: React.FC = () => {
                 <span className="text-xs text-slate-400 font-semibold">Answer</span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PRE-CALL DETAILS MODAL (Patient submits complaint & details before calling) ── */}
+      {pendingCallForDetails && (
+        <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-white">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-3">
+                <img
+                  src={pendingCallForDetails.clinician.avatar || '/ki_ezra_avatar.jpg'}
+                  alt={pendingCallForDetails.clinician.name}
+                  className="w-12 h-12 rounded-2xl object-cover border border-teal-500/40"
+                />
+                <div>
+                  <h3 className="text-sm font-extrabold text-white">Call {pendingCallForDetails.clinician.name}</h3>
+                  <span className="text-[11px] font-bold text-teal-300">
+                    {pendingCallForDetails.type === 'video' ? 'Video Consultation' : 'Voice Call'}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setPendingCallForDetails(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Please enter your details and symptoms so the doctor can review your condition when receiving your call.
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!preCallForm.complaint.trim()) {
+                  alert('Please describe your symptoms or reason for calling.');
+                  return;
+                }
+                const details = { ...preCallForm };
+                const c = pendingCallForDetails.clinician;
+                const t = pendingCallForDetails.type;
+                setPendingCallForDetails(null);
+                executeCall(c, t, details);
+              }}
+              className="space-y-3 text-xs"
+            >
+              <div>
+                <label className="block font-bold text-slate-300 mb-1">Your Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={preCallForm.name}
+                  onChange={(e) => setPreCallForm({ ...preCallForm, name: e.target.value })}
+                  placeholder="e.g. Sarah Namubiru"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300 mb-1">Reason for Call / Chief Complaint *</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={preCallForm.complaint}
+                  onChange={(e) => setPreCallForm({ ...preCallForm, complaint: e.target.value })}
+                  placeholder="Describe your current symptoms, how long you've felt sick, or question for the doctor..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Patient Age (optional)</label>
+                  <input
+                    type="number"
+                    value={preCallForm.age}
+                    onChange={(e) => setPreCallForm({ ...preCallForm, age: e.target.value })}
+                    placeholder="e.g. 28"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Phone Number (optional)</label>
+                  <input
+                    type="tel"
+                    value={preCallForm.phone}
+                    onChange={(e) => setPreCallForm({ ...preCallForm, phone: e.target.value })}
+                    placeholder="+256 7..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingCallForDetails(null)}
+                  className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-2/3 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 font-black text-xs flex items-center justify-center space-x-1.5 shadow-lg shadow-teal-500/20"
+                >
+                  {pendingCallForDetails.type === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+                  <span>Start Call Now</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

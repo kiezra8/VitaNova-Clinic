@@ -510,6 +510,73 @@ export const fetchEducationArticles = async () => {
   return data;
 };
 
+/**
+ * Upload a video file to Supabase Storage and save metadata to education_articles.
+ * Returns the public video URL if successful.
+ */
+export const upsertEducationVideo = async (opts: {
+  id: string;
+  title: string;
+  category: string;
+  summary: string;
+  videoFile: File;
+  thumbnailDataUrl?: string;
+  authorName: string;
+  speakerRole?: string;
+}): Promise<{ videoUrl: string | null; error: string | null }> => {
+  try {
+    const filePath = `education_videos/${opts.id}_${Date.now()}.${opts.videoFile.name.split('.').pop() || 'mp4'}`;
+    const { error: uploadError } = await supabase.storage
+      .from('vitanova-assets')
+      .upload(filePath, opts.videoFile, { upsert: true, contentType: opts.videoFile.type || 'video/mp4' });
+
+    if (uploadError) {
+      console.warn('[VitaNova] Video upload error:', uploadError.message);
+      return { videoUrl: null, error: uploadError.message };
+    }
+
+    const { data: urlData } = supabase.storage.from('vitanova-assets').getPublicUrl(filePath);
+    const publicVideoUrl = urlData.publicUrl;
+
+    // Optionally upload thumbnail
+    let publicThumbUrl: string | undefined;
+    if (opts.thumbnailDataUrl) {
+      try {
+        const thumbPath = `education_thumbs/${opts.id}_${Date.now()}.jpg`;
+        const res = await fetch(opts.thumbnailDataUrl);
+        const thumbBlob = await res.blob();
+        await supabase.storage.from('vitanova-assets').upload(thumbPath, thumbBlob, { upsert: true, contentType: 'image/jpeg' });
+        const { data: tUrlData } = supabase.storage.from('vitanova-assets').getPublicUrl(thumbPath);
+        publicThumbUrl = tUrlData.publicUrl;
+      } catch (_) {}
+    }
+
+    // Insert or update the education_articles row
+    const { error: dbError } = await supabase
+      .from('education_articles')
+      .upsert({
+        id: opts.id,
+        title: opts.title,
+        category: opts.category,
+        summary: opts.summary,
+        video_url: publicVideoUrl,
+        thumbnail_url: publicThumbUrl || null,
+        author_name: opts.authorName,
+        author_avatar: '/ki_ezra_avatar.jpg',
+        is_published: true,
+        view_count: 0
+      }, { onConflict: 'id' });
+
+    if (dbError) {
+      console.warn('[VitaNova] education_articles upsert error:', dbError.message);
+    }
+
+    return { videoUrl: publicVideoUrl, error: null };
+  } catch (err: any) {
+    return { videoUrl: null, error: String(err?.message || err) };
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CALL SIGNALS — Cross-Device Telehealth Call Routing via Supabase Realtime
 // Uses Supabase Realtime (free tier, no subscription cost).
@@ -1063,6 +1130,22 @@ export const updateCallLog = async (logId: string, updates: {
   if (updates.durationSec !== undefined) row.duration_sec = updates.durationSec;
 
   await supabase.from('call_logs').update(row).eq('id', logId);
+};
+
+/** Update call log by sessionId */
+export const updateCallLogBySession = async (sessionId: string, updates: {
+  status?: string;
+  endedAt?: string;
+  durationSec?: number;
+}) => {
+  const row: Record<string, any> = {};
+  if (updates.status) row.status = updates.status;
+  if (updates.endedAt) row.ended_at = updates.endedAt;
+  if (updates.durationSec !== undefined) row.duration_sec = updates.durationSec;
+
+  try {
+    await supabase.from('call_logs').update(row).eq('session_id', sessionId);
+  } catch (_) {}
 };
 
 /** Fetch call history for a user */

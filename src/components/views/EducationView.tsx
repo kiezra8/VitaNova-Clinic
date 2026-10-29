@@ -31,6 +31,7 @@ import {
 import { HealthEducationArticle } from '../../types';
 import { DiseaseVideoItem } from '../../data/diseaseVideos';
 import { db } from '../../lib/db';
+import { fetchEducationArticles, upsertEducationVideo, supabase } from '../../lib/supabase';
 
 interface EducationViewProps {
   articles?: HealthEducationArticle[];
@@ -463,6 +464,58 @@ export const EducationView: React.FC<EducationViewProps> = ({
     }
   });
 
+  // Supabase-sourced videos (visible to ALL users, not just admin device)
+  const [supabaseVideos, setSupabaseVideos] = useState<DiseaseVideoItem[]>([]);
+
+  // Fetch videos from Supabase on mount — these are shared across all devices/users
+  useEffect(() => {
+    let active = true;
+    const loadSupabaseVideos = async () => {
+      try {
+        const articles = await fetchEducationArticles();
+        if (!articles || !active) return;
+        const mapped: DiseaseVideoItem[] = articles
+          .filter((a: any) => a.video_url)
+          .map((a: any): DiseaseVideoItem => ({
+            id: a.id,
+            title: a.title || 'Health Video',
+            diseaseName: a.title || 'Health Education',
+            category: a.category || 'Community Health & Wellness',
+            summary: a.summary || '',
+            videoDuration: '—',
+            durationSeconds: 0,
+            views: String(a.view_count || 0),
+            publishedDate: a.created_at ? new Date(a.created_at).toLocaleDateString() : 'Recent',
+            channelName: 'VitaNova Clinic',
+            speakerName: a.author_name || 'VitaNova Clinician',
+            speakerRole: 'Healthcare Staff',
+            speakerAvatar: a.author_avatar || '/ki_ezra_avatar.jpg',
+            videoThumbnail: a.thumbnail_url || '',
+            videoUrl: a.video_url,
+            audioUrl: '',
+            levelOfCare: 'Health Centre III to National Referral',
+            diseaseClass: 'Clinic Video',
+            clinicalGuideline: {
+              caseDefinition: a.summary || 'Health education video.',
+              diagnosticCriteria: ['Clinical evaluation'],
+              investigations: ['Routine monitoring'],
+              firstLineMedicines: ['Uganda Clinical Guidelines'],
+              treatmentProtocol: ['Follow clinical recommendations'],
+              dangerSigns: ['Sudden deterioration'],
+              referralProtocol: 'Refer to nearest VitaNova centre',
+              preventionCounseling: ['Follow-up appointments']
+            },
+            videoSlides: [{ title: a.title, timing: '0:00', keyPoints: [a.summary || 'Health guidance'], badge: 'VitaNova Health' }]
+          }));
+        if (active) setSupabaseVideos(mapped);
+      } catch (e) {
+        console.warn('[VitaNova] Could not fetch Supabase videos:', e);
+      }
+    };
+    loadSupabaseVideos();
+    return () => { active = false; };
+  }, []);
+
   // Hydrate video & thumbnail blobs from IndexedDB so they never break on page reload
   useEffect(() => {
     let isMounted = true;
@@ -572,9 +625,17 @@ export const EducationView: React.FC<EducationViewProps> = ({
   ];
 
   // Only show user-uploaded gallery videos — no AI-generated or built-in disease videos
+  // Merge Supabase-fetched (visible to all) + local gallery (admin device only, for backward compat)
+  // Deduplicate by ID so admin's own videos don't show twice
   const allAvailableVideos = useMemo(() => {
-    return [...galleryVideos];
-  }, [galleryVideos]);
+    const merged = [...supabaseVideos];
+    for (const gv of galleryVideos) {
+      if (!merged.some((sv) => sv.id === gv.id)) {
+        merged.push(gv);
+      }
+    }
+    return merged;
+  }, [galleryVideos, supabaseVideos]);
 
   const filteredVideos = useMemo(() => {
     return allAvailableVideos.filter((vid) => {
@@ -726,6 +787,40 @@ export const EducationView: React.FC<EducationViewProps> = ({
         }
       }
 
+      // ── Upload to Supabase so ALL patients/users can see the video ──
+      if (videoFile) {
+        upsertEducationVideo({
+          id: newVideoItem.id,
+          title: newVideoItem.title,
+          category: newVideoItem.category,
+          summary: newVideoItem.summary,
+          videoFile,
+          thumbnailDataUrl: finalThumb || undefined,
+          authorName: postSpeaker.trim() || 'Dr. Israel Kisakye',
+          speakerRole: postSpeakerRole.trim() || 'Lead Clinical Consultant'
+        }).then(({ videoUrl, error }) => {
+          if (error) {
+            console.warn('[VitaNova] Could not upload video to Supabase:', error);
+          } else if (videoUrl) {
+            // Update the video item in state/localStorage with the permanent Supabase URL
+            setGalleryVideos((prev) => {
+              const fixed = prev.map((v) =>
+                v.id === newVideoItem.id ? { ...v, videoUrl } : v
+              );
+              try {
+                localStorage.setItem('vitanova_gallery_videos', JSON.stringify(fixed));
+              } catch (_) {}
+              return fixed;
+            });
+            // Also add to supabaseVideos so it shows to all users immediately
+            setSupabaseVideos((prev) => {
+              if (prev.some((v) => v.id === newVideoItem.id)) return prev;
+              return [{ ...newVideoItem, videoUrl }, ...prev];
+            });
+          }
+        }).catch(() => {});
+      }
+
       setUploadSuccess(true);
       setTimeout(() => {
         setUploadSuccess(false);
@@ -747,13 +842,18 @@ export const EducationView: React.FC<EducationViewProps> = ({
   // Delete User-Uploaded Video
   const handleDeleteGalleryVideo = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm('Are you sure you want to remove this video from your gallery?')) {
+    if (confirm('Are you sure you want to remove this video?')) {
       const updated = galleryVideos.filter(v => v.id !== id);
       setGalleryVideos(updated);
+      setSupabaseVideos((prev) => prev.filter(v => v.id !== id));
       try {
         localStorage.setItem('vitanova_gallery_videos', JSON.stringify(updated));
         await db.appSettings.delete(`video_blob_${id}`);
         await db.appSettings.delete(`thumb_blob_${id}`);
+      } catch (_) {}
+      // Also remove from Supabase
+      try {
+        await supabase.from('education_articles').delete().eq('id', id);
       } catch (_) {}
     }
   };

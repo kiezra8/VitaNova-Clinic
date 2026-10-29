@@ -21,6 +21,9 @@ import {
   ArrowDown,
   Users,
   Mic,
+  MicOff,
+  Square,
+  Trash2,
   Image as ImageIcon,
   Camera,
   X,
@@ -136,6 +139,14 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Voice note recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string>('');
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Group clinicians into Doctors on Call vs Allied Health Staff
   const doctorsOnCall = clinicians.filter(
@@ -369,6 +380,92 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
     if (onTriggerCall) {
       onTriggerCall(clinician, type);
+    }
+  };
+
+  // ── Voice Note Recording ─────────────────────────────────────────────────
+  const handleStartRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks: BlobPart[] = [];
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+      const mr = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = mr;
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks, { type: mr.mimeType });
+        setAudioBlob(blob);
+        const url = URL.createObjectURL(blob);
+        setAudioPreviewUrl(url);
+        setIsRecording(false);
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        setRecordingSeconds(0);
+      };
+      mr.start();
+      setIsRecording(true);
+      setAudioBlob(null);
+      setAudioPreviewUrl('');
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } catch (err) {
+      console.warn('[VitaNova] Mic access denied:', err);
+      alert('Microphone access is required to record a voice note.');
+    }
+  };
+
+  const handleStopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+  };
+
+  const handleCancelVoiceNote = () => {
+    handleStopRecording();
+    setAudioBlob(null);
+    setAudioPreviewUrl('');
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const handleSendVoiceNote = async () => {
+    if (!audioBlob || !selectedClinician) return;
+    setIsSending(true);
+    try {
+      const reader = new FileReader();
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(audioBlob);
+      });
+
+      const sent = await sendMessage({
+        senderId: currentUserId,
+        senderRole: currentUserRole,
+        senderName: currentUserName,
+        recipientId: selectedClinician.id,
+        content: '🎤 Voice Note',
+        messageType: 'voice',
+        mediaUrl: dataUrl,
+        mediaMimeType: audioBlob.type || 'audio/webm'
+      });
+
+      if (sent) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === sent.id)) return prev;
+          return [...prev, sent];
+        });
+        setTimeout(() => scrollToBottom(), 100);
+      }
+    } catch (err) {
+      console.warn('[VitaNova] Send voice note error:', err);
+    } finally {
+      setIsSending(false);
+      setAudioBlob(null);
+      setAudioPreviewUrl('');
+      setIsRecording(false);
+      setRecordingSeconds(0);
     }
   };
 
@@ -728,22 +825,35 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
 
       {/* ── 3. CHATS TAB ── */}
       {viewTab === 'chats' && (
-        <div className="flex h-[calc(100vh-230px)] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/80 shadow-2xl">
+        <div className="fixed inset-0 z-[200] bg-slate-950 flex overflow-hidden">
           {/* Sidebar */}
           <div
             className={`${
               selectedClinician ? 'hidden md:flex' : 'flex'
             } w-full md:w-80 lg:w-96 flex-col border-r border-slate-800/60 shrink-0 bg-slate-900`}
           >
-            <div className="px-4 pt-4 pb-3 border-b border-slate-800">
-              <h2 className="text-base font-extrabold text-white">
-                {currentUserRole === 'doctor' ? 'Customer Conversations' : 'Practitioner Messages'}
-              </h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {currentUserRole === 'doctor'
-                  ? 'Patients who have consulted or talked with you'
-                  : 'Encrypted direct messaging with clinicians'}
-              </p>
+            {/* Sidebar Header with back/exit button */}
+            <div className="px-4 pt-4 pb-3 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-extrabold text-white">
+                  {currentUserRole === 'doctor' ? 'Customer Conversations' : 'Practitioner Messages'}
+                </h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {currentUserRole === 'doctor'
+                    ? 'Patients who have consulted or talked with you'
+                    : 'Encrypted direct messaging with clinicians'}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedClinician(null);
+                  setViewTab('directory');
+                }}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                title="Exit Fullscreen Chat"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto">
@@ -878,6 +988,16 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                     >
                       <Phone className="w-4 h-4 text-teal-400" />
                     </button>
+                    <button
+                      onClick={() => {
+                        setSelectedClinician(null);
+                        setViewTab('directory');
+                      }}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors ml-1"
+                      title="Exit Chat"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
 
@@ -897,15 +1017,33 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                     messages.map((msg) => {
                       const isMe = msg.senderId === currentUserId;
                       return (
-                        <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                        <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} mb-2`}>
+                          {/* Sender Name label */}
+                          <span className={`text-[10px] font-bold px-1 mb-0.5 ${isMe ? 'text-teal-400' : 'text-slate-400'}`}>
+                            {isMe ? 'You' : (msg.senderName || (msg.senderRole === 'doctor' ? 'Doctor' : 'Patient'))}
+                          </span>
                           <div
-                            className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-xs ${
+                            className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 text-xs ${
                               isMe
                                 ? 'bg-teal-600 text-white rounded-br-none shadow-sm'
                                 : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-none shadow-sm'
                             }`}
                           >
-                            <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                            {msg.messageType === 'voice' && msg.mediaUrl ? (
+                              <div className="space-y-1.5 py-1 min-w-[200px] sm:min-w-[240px]">
+                                <div className="flex items-center space-x-2 text-[11px] font-bold opacity-90">
+                                  <span>🎤</span>
+                                  <span>Voice Note</span>
+                                </div>
+                                <audio
+                                  controls
+                                  src={msg.mediaUrl}
+                                  className="w-full h-8 rounded-lg outline-none"
+                                />
+                              </div>
+                            ) : (
+                              <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                            )}
                             <span className="text-[9.5px] opacity-70 block text-right mt-1">
                               {formatMessageTime(msg.createdAt)}
                             </span>
@@ -917,33 +1055,107 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                     <div className="flex flex-col items-center justify-center py-20 text-slate-500 text-center">
                       <MessageSquare className="w-10 h-10 mb-2 opacity-30 text-teal-400" />
                       <p className="text-xs font-semibold text-slate-400">Encrypted Consultation Channel</p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Send a message to start direct communication.</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Send a message or voice note to start direct communication.</p>
                     </div>
                   )}
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input form */}
-                <form onSubmit={handleSendMessage} className="p-3 bg-slate-900 border-t border-slate-800 flex items-center space-x-2">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={chatDraft}
-                    onChange={(e) => setChatDraft(e.target.value)}
-                    placeholder="Type encrypted message..."
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isSending || !chatDraft.trim()}
-                    className="p-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-50 text-slate-950 font-bold transition-all"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
+                {/* Input form with Voice Note Support */}
+                <div className="p-3 bg-slate-900 border-t border-slate-800">
+                  {isRecording ? (
+                    /* Active Recording Bar */
+                    <div className="flex items-center justify-between bg-rose-500/10 border border-rose-500/30 rounded-2xl p-2.5 animate-pulse">
+                      <div className="flex items-center space-x-2.5 text-rose-400 font-bold text-xs pl-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                        <span>Recording Voice Note...</span>
+                        <span className="font-mono text-white text-xs">
+                          0:{recordingSeconds < 10 ? '0' : ''}{recordingSeconds}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={handleCancelVoiceNote}
+                          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                          title="Cancel Recording"
+                        >
+                          <Trash2 className="w-4 h-4 text-rose-400" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleStopRecording}
+                          className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center space-x-1.5 transition-colors"
+                          title="Done Recording"
+                        >
+                          <Square className="w-3.5 h-3.5 fill-white" />
+                          <span>Done</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : audioPreviewUrl ? (
+                    /* Recorded Audio Preview Bar */
+                    <div className="flex items-center space-x-2 bg-slate-800/80 border border-slate-700 rounded-2xl p-2">
+                      <button
+                        type="button"
+                        onClick={handleCancelVoiceNote}
+                        className="p-2 rounded-xl hover:bg-slate-750 text-slate-400 hover:text-rose-400 transition-colors"
+                        title="Discard Voice Note"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                      <audio controls src={audioPreviewUrl} className="flex-1 h-8 rounded-lg" />
+                      <button
+                        type="button"
+                        onClick={handleSendVoiceNote}
+                        disabled={isSending}
+                        className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 font-black text-xs flex items-center space-x-1.5 transition-all shadow-md shadow-teal-500/20"
+                        title="Send Voice Note"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Send</span>
+                      </button>
+                    </div>
+                  ) : (
+                    /* Standard text input + Voice note record button */
+                    <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        value={chatDraft}
+                        onChange={(e) => setChatDraft(e.target.value)}
+                        placeholder="Type encrypted message..."
+                        className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleStartRecording}
+                        className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-400 hover:text-teal-300 border border-slate-700 transition-all"
+                        title="Record Voice Note"
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSending || !chatDraft.trim()}
+                        className="p-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-50 text-slate-950 font-bold transition-all shadow-sm"
+                        title="Send Message"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </form>
+                  )}
+                </div>
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-500">
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-500 relative">
+                <button
+                  onClick={() => { setSelectedClinician(null); setViewTab('directory'); }}
+                  className="absolute top-4 right-4 p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                  title="Exit Fullscreen Chat"
+                >
+                  <X className="w-4 h-4" />
+                </button>
                 <MessageSquare className="w-12 h-12 mb-3 text-teal-400 opacity-40" />
                 <h3 className="text-base font-bold text-white">VitaNova Telehealth Chat</h3>
                 <p className="text-xs text-slate-400 max-w-xs mt-1">
