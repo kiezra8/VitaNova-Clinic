@@ -886,19 +886,9 @@ export const App: React.FC = () => {
     setActiveCallSessionId(null);
   }, []);
 
-  // Direct In-App Call Initiation — Asks patient for details before calling
+  // Direct In-App Call Initiation — Immediate one-tap dial without pre-call questions
   const handleStartCall = (clinician: HealthcareWorker, type: 'video' | 'audio') => {
-    if (isDoctorLoggedIn) {
-      executeCall(clinician, type);
-    } else {
-      setPreCallForm({
-        name: patient?.fullName?.trim() || 'Sarah Namubiru',
-        complaint: '',
-        age: (patient as any)?.age ? String((patient as any).age) : '',
-        phone: (patient as any)?.phone || ''
-      });
-      setPendingCallForDetails({ clinician, type });
-    }
+    executeCall(clinician, type);
   };
 
   const executeCall = (
@@ -1407,119 +1397,6 @@ export const App: React.FC = () => {
                 <span className="text-xs text-slate-400 font-semibold">Answer</span>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── PRE-CALL DETAILS MODAL (Patient submits complaint & details before calling) ── */}
-      {pendingCallForDetails && (
-        <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-white">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center space-x-3">
-                <img
-                  src={pendingCallForDetails.clinician.avatar || '/ki_ezra_avatar.jpg'}
-                  alt={pendingCallForDetails.clinician.name}
-                  className="w-12 h-12 rounded-2xl object-cover border border-teal-500/40"
-                />
-                <div>
-                  <h3 className="text-sm font-extrabold text-white">Call {pendingCallForDetails.clinician.name}</h3>
-                  <span className="text-[11px] font-bold text-teal-300">
-                    {pendingCallForDetails.type === 'video' ? 'Video Consultation' : 'Voice Call'}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setPendingCallForDetails(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-300">
-              Please enter your details and symptoms so the doctor can review your condition when receiving your call.
-            </p>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!preCallForm.complaint.trim()) {
-                  alert('Please describe your symptoms or reason for calling.');
-                  return;
-                }
-                const details = { ...preCallForm };
-                const c = pendingCallForDetails.clinician;
-                const t = pendingCallForDetails.type;
-                setPendingCallForDetails(null);
-                executeCall(c, t, details);
-              }}
-              className="space-y-3 text-xs"
-            >
-              <div>
-                <label className="block font-bold text-slate-300 mb-1">Your Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={preCallForm.name}
-                  onChange={(e) => setPreCallForm({ ...preCallForm, name: e.target.value })}
-                  placeholder="e.g. Sarah Namubiru"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-300 mb-1">Reason for Call / Chief Complaint *</label>
-                <textarea
-                  required
-                  rows={3}
-                  value={preCallForm.complaint}
-                  onChange={(e) => setPreCallForm({ ...preCallForm, complaint: e.target.value })}
-                  placeholder="Describe your current symptoms, how long you've felt sick, or question for the doctor..."
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium resize-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">Patient Age (optional)</label>
-                  <input
-                    type="number"
-                    value={preCallForm.age}
-                    onChange={(e) => setPreCallForm({ ...preCallForm, age: e.target.value })}
-                    placeholder="e.g. 28"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">Phone Number (optional)</label>
-                  <input
-                    type="tel"
-                    value={preCallForm.phone}
-                    onChange={(e) => setPreCallForm({ ...preCallForm, phone: e.target.value })}
-                    placeholder="+256 7..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-teal-500 font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setPendingCallForDetails(null)}
-                  className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold text-xs"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="w-2/3 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 font-black text-xs flex items-center justify-center space-x-1.5 shadow-lg shadow-teal-500/20"
-                >
-                  {pendingCallForDetails.type === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
-                  <span>Start Call Now</span>
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
