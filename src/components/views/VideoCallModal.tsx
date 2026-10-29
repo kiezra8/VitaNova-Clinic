@@ -1,18 +1,25 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   PhoneOff,
+  Mic,
+  MicOff,
   Video,
+  VideoOff,
   Phone,
-  ShieldCheck,
-  Activity,
   Maximize2,
   Minimize2,
+  ShieldCheck,
+  Activity,
+  SwitchCamera,
   AlertCircle
 } from 'lucide-react';
 import { HealthcareWorker } from '../../types';
 import {
   sendCallSignal,
-  subscribeToCallSignals,
+  subscribeToCallSession,
+  fetchCallSessionSignals,
+  joinCallSignalingRoom,
+  BroadcastSignal,
   updateCallLogBySession
 } from '../../lib/supabase';
 import {
@@ -21,12 +28,6 @@ import {
   playConnectedTone,
   playHangupTone
 } from '../../lib/callSounds';
-
-declare global {
-  interface Window {
-    JitsiMeetExternalAPI?: any;
-  }
-}
 
 interface VideoCallModalProps {
   clinician: HealthcareWorker;
@@ -38,55 +39,66 @@ interface VideoCallModalProps {
   onEnd: () => void;
 }
 
-/** Dynamically load Jitsi Meet External API script once */
-function loadJitsiScript(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.JitsiMeetExternalAPI) {
-      resolve();
-      return;
-    }
-    const existing = document.getElementById('jitsi-external-api');
-    if (existing) {
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('Failed to load Jitsi API')));
-      return;
-    }
-    const script = document.createElement('script');
-    script.id = 'jitsi-external-api';
-    script.src = 'https://meet.jit.si/external_api.js';
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Jitsi API'));
-    document.body.appendChild(script);
-  });
-}
+const RTC_CONFIG: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' }
+  ],
+  iceCandidatePoolSize: 10
+};
 
 export const VideoCallModal: React.FC<VideoCallModalProps> = ({
   clinician,
   callType,
   userRole = 'patient',
   memberName,
+  callerName,
   sessionId: propSessionId,
   onEnd
 }) => {
   const [sessionId] = useState<string>(
     () => propSessionId || `vitanova_call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
   );
+  const [myClientId] = useState<string>(
+    () => `client_${Math.random().toString(36).substring(2, 9)}`
+  );
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<any>(null);
   const onEndRef = useRef(onEnd);
   onEndRef.current = onEnd;
 
-  const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
+  // Video and Audio DOM Refs
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+
+  // WebRTC Refs
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream>(new MediaStream());
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const isEndedRef = useRef<boolean>(false);
+  const hasSentAnswerRef = useRef<boolean>(false);
+  const isPeerConnectedRef = useRef<boolean>(false);
+  const handledSignalIdsRef = useRef<Set<string>>(new Set());
+
+  // Component States
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [isPeerConnected, setIsPeerConnected] = useState<boolean>(false);
+  const [cameraPermissionError, setCameraPermissionError] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isCameraOff, setIsCameraOff] = useState<boolean>(callType === 'audio');
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [duration, setDuration] = useState<number>(0);
-  const [hasRemoteParticipant, setHasRemoteParticipant] = useState<boolean>(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const durationRef = useRef<number>(0);
+  durationRef.current = duration;
+  const [isSwapped, setIsSwapped] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
-  const durationRef = useRef(0);
-  durationRef.current = duration;
-  const isEndedRef = useRef(false);
+  const otherPersonName = userRole === 'doctor' ? (callerName || 'Patient') : clinician.name;
 
   const formatDuration = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -94,181 +106,451 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Safe hangup & cleanup
+  // Safe End Call
   const handleEndCall = useCallback(() => {
     if (isEndedRef.current) return;
     isEndedRef.current = true;
 
     stopRingbackTone();
     playHangupTone();
-    setCallStatus('ended');
 
-    // Update call log in Supabase with final duration
+    // Update Supabase Call Log with final duration
     updateCallLogBySession(sessionId, {
       status: 'ended',
       endedAt: new Date().toISOString(),
       durationSec: durationRef.current
     }).catch(() => {});
 
-    // Broadcast hangup signal so other participant's modal closes
+    // Broadcast HANGUP signal to remote peer
     sendCallSignal({
       signalType: 'HANGUP',
       fromRole: userRole,
       callerName: memberName,
       targetClinicianId: clinician.id,
       callType,
-      sessionId
+      sessionId,
+      senderId: myClientId
     }).catch(() => {});
 
-    try {
-      if (apiRef.current) {
-        apiRef.current.dispose();
-        apiRef.current = null;
-      }
-    } catch (_) {}
+    // Stop local camera tracks
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+
+    // Close PeerConnection
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch (_) {}
+      pcRef.current = null;
+    }
 
     setTimeout(() => {
       onEndRef.current();
     }, 400);
-  }, [sessionId, userRole, memberName, clinician.id, callType]);
+  }, [sessionId, userRole, memberName, clinician.id, callType, myClientId]);
 
-  // Listen for remote hangup signal
-  useEffect(() => {
-    const unsub = subscribeToCallSignals(clinician.id, (sig) => {
-      if (sig.sessionId && sig.sessionId !== sessionId) return;
-      if (sig.signalType === 'HANGUP' || sig.signalType === 'DECLINE') {
-        handleEndCall();
-      }
-    });
-    return () => {
-      unsub();
-    };
-  }, [clinician.id, sessionId, handleEndCall]);
-
-  // Initialize Jitsi Meet Conference
+  // ── Step 1: Start Local Camera Stream Immediately (Self-View) ──
   useEffect(() => {
     let active = true;
 
-    // Start ringback tone for caller while connecting
+    const startLocalMedia = async () => {
+      try {
+        const constraints: MediaStreamConstraints = {
+          audio: true,
+          video: callType === 'video'
+            ? {
+                facingMode: 'user',
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              }
+            : false
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (!active) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          localVideoRef.current.play().catch(() => {});
+        }
+      } catch (err: any) {
+        console.warn('[VideoCallModal] Media access error:', err);
+        if (active) {
+          // If video failed, try audio only as fallback
+          try {
+            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (active) {
+              localStreamRef.current = audioStream;
+              setLocalStream(audioStream);
+              setIsCameraOff(true);
+            }
+          } catch (audioErr: any) {
+            setCameraPermissionError(
+              'Camera and microphone permissions were denied. Please allow permissions in your browser.'
+            );
+          }
+        }
+      }
+    };
+
+    startLocalMedia();
+
+    // Start ringback tone for caller while waiting
     if (userRole === 'patient') {
       startRingbackTone();
     }
 
-    const initJitsi = async () => {
-      try {
-        await loadJitsiScript();
-        if (!active || !containerRef.current) return;
+    return () => {
+      active = false;
+      stopRingbackTone();
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, [callType, userRole]);
 
-        // Clean room name suitable for Jitsi
-        const cleanRoom = `VitaNova_${sessionId.replace(/[^a-zA-Z0-9_]/g, '_')}`;
-        const displayName = memberName?.trim() || (userRole === 'doctor' ? clinician.name : 'Patient');
+  // Ensure local video element attaches whenever stream or swapped state changes
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
+    }
+  }, [localStream, isSwapped, isPeerConnected]);
 
-        const domain = 'meet.jit.si';
-        const options = {
-          roomName: cleanRoom,
-          parentNode: containerRef.current,
-          width: '100%',
-          height: '100%',
-          userInfo: {
-            displayName
-          },
-          configOverwrite: {
-            startWithAudioMuted: false,
-            startWithVideoMuted: callType === 'audio',
-            prejoinPageEnabled: false,
-            prejoinConfig: { enabled: false },
-            disableDeepLinking: true,
-            enableWelcomePage: false,
-            enableClosePage: false,
-            hideConferenceSubject: true,
-            hideConferenceTimer: false,
-            subject: `VitaNova Telehealth • ${clinician.name}`,
-            toolbarButtons: [
-              'microphone',
-              'camera',
-              'hangup',
-              'chat',
-              'tileview',
-              'toggle-camera',
-              'videoquality',
-              'fullscreen'
-            ]
-          },
-          interfaceConfigOverwrite: {
-            SHOW_JITSI_WATERMARK: false,
-            SHOW_WATERMARK_FOR_GUESTS: false,
-            SHOW_BRAND_WATERMARK: false,
-            BRAND_WATERMARK_LINK: '',
-            SHOW_POWERED_BY: false,
-            DEFAULT_REMOTE_DISPLAY_NAME: clinician.name,
-            TOOLBAR_ALWAYS_VISIBLE: true
-          }
-        };
+  // Duration timer when peer connects
+  useEffect(() => {
+    if (!isPeerConnected) return;
+    const timer = setInterval(() => {
+      setDuration((d) => d + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isPeerConnected]);
 
-        const api = new window.JitsiMeetExternalAPI(domain, options);
-        apiRef.current = api;
+  // ── Step 2: WebRTC PeerConnection & Cross-Device Signaling ──
+  useEffect(() => {
+    if (!localStream) return; // Wait until local camera is ready
+    let active = true;
 
-        api.addEventListener('videoConferenceJoined', () => {
-          if (!active) return;
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    pcRef.current = pc;
+
+    // Attach local stream tracks to PeerConnection
+    localStream.getTracks().forEach((track) => {
+      pc.addTrack(track, localStream);
+    });
+
+    // Handle remote tracks
+    pc.ontrack = (event) => {
+      console.log('[WebRTC] ontrack received:', event.track.kind);
+      if (event.streams && event.streams[0]) {
+        remoteStreamRef.current = event.streams[0];
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+          remoteVideoRef.current.play().catch(() => {});
+        }
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = event.streams[0];
+          remoteAudioRef.current.play().catch(() => {});
+        }
+      } else {
+        remoteStreamRef.current.addTrack(event.track);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStreamRef.current;
+          remoteVideoRef.current.play().catch(() => {});
+        }
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStreamRef.current;
+          remoteAudioRef.current.play().catch(() => {});
+        }
+      }
+
+      if (!isPeerConnectedRef.current) {
+        isPeerConnectedRef.current = true;
+        setIsPeerConnected(true);
+        stopRingbackTone();
+        playConnectedTone();
+
+        updateCallLogBySession(sessionId, {
+          status: 'answered',
+          answeredAt: new Date().toISOString()
+        }).catch(() => {});
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTC] ICE state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        if (!isPeerConnectedRef.current) {
+          isPeerConnectedRef.current = true;
+          setIsPeerConnected(true);
           stopRingbackTone();
           playConnectedTone();
-          setCallStatus('connected');
+        }
+      } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        console.warn('[WebRTC] Peer disconnected or failed');
+      }
+    };
 
-          // Mark call as answered in Supabase
-          updateCallLogBySession(sessionId, {
-            status: 'answered',
-            answeredAt: new Date().toISOString()
-          }).catch(() => {});
-        });
+    // Helper: Unified Signal Dispatcher across BroadcastChannel, Realtime Room & Supabase DB
+    const bChan = new BroadcastChannel(`vitanova_webrtc_${sessionId}`);
+    const realtimeRoom = joinCallSignalingRoom(sessionId, (sig) => {
+      if (sig.senderId !== myClientId) {
+        handleIncomingSignal(sig.type, sig.payload || sig);
+      }
+    });
 
-        api.addEventListener('participantJoined', () => {
-          if (!active) return;
-          setHasRemoteParticipant(true);
-        });
+    const sendSignal = async (signalType: string, payload: any) => {
+      const envelope = {
+        signalType,
+        senderId: myClientId,
+        fromRole: userRole,
+        sessionId,
+        payload
+      };
 
-        api.addEventListener('participantLeft', () => {
-          if (!active) return;
-          setHasRemoteParticipant(false);
-        });
+      // 1. Same-device cross-tab BroadcastChannel (instant 0ms)
+      try {
+        bChan.postMessage(envelope);
+      } catch (_) {}
 
-        api.addEventListener('videoConferenceLeft', () => {
-          handleEndCall();
+      // 2. Supabase Realtime Broadcast Room (WebSocket push)
+      try {
+        realtimeRoom.send({
+          type: signalType,
+          senderId: myClientId,
+          sessionId,
+          role: userRole,
+          ...payload
         });
+      } catch (_) {}
 
-        api.addEventListener('readyToClose', () => {
-          handleEndCall();
+      // 3. Supabase DB call_signals table (guaranteed cross-device persistence across mobile networks)
+      try {
+        await sendCallSignal({
+          signalType,
+          fromRole: userRole,
+          callerName: memberName,
+          targetClinicianId: clinician.id,
+          callType,
+          sessionId,
+          senderId: myClientId,
+          payload
         });
-      } catch (err: any) {
-        console.error('[VideoCallModal] Jitsi load error:', err);
-        if (active) {
-          stopRingbackTone();
-          setLoadError(err?.message || 'Could not connect to video server. Please check internet connection.');
+      } catch (_) {}
+    };
+
+    // When PeerConnection discovers local ICE candidates, send them to remote peer
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendSignal('ICE', { candidate: event.candidate.toJSON() });
+      }
+    };
+
+    // Flush any pending candidates queued before remoteDescription was set
+    const flushCandidates = async () => {
+      while (pendingCandidatesRef.current.length > 0) {
+        const cand = pendingCandidatesRef.current.shift();
+        if (cand) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (_) {}
         }
       }
     };
 
-    initJitsi();
+    // Central Signal Processor
+    const handleIncomingSignal = async (signalType: string, payload: any) => {
+      if (!active || !pc || pc.signalingState === 'closed') return;
+      const sId = payload?.senderId || payload?.sessionId;
+      if (sId === myClientId) return; // Ignore own echoes
+
+      console.log('[WebRTC] Received signal:', signalType);
+
+      if (signalType === 'OFFER' && payload?.sdp) {
+        if (userRole === 'doctor' && !hasSentAnswerRef.current) {
+          try {
+            hasSentAnswerRef.current = true;
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            await flushCandidates();
+
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await sendSignal('ANSWER', { sdp: answer });
+          } catch (err) {
+            console.warn('[WebRTC] handleOffer error:', err);
+          }
+        }
+      } else if (signalType === 'ANSWER' && payload?.sdp) {
+        if (pc.signalingState === 'have-local-offer') {
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            await flushCandidates();
+            if (!isPeerConnectedRef.current) {
+              isPeerConnectedRef.current = true;
+              setIsPeerConnected(true);
+              stopRingbackTone();
+              playConnectedTone();
+            }
+          } catch (err) {
+            console.warn('[WebRTC] handleAnswer error:', err);
+          }
+        }
+      } else if (signalType === 'ICE' && payload?.candidate) {
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+          } catch (_) {}
+        } else {
+          pendingCandidatesRef.current.push(payload.candidate);
+        }
+      } else if (signalType === 'HANGUP' || signalType === 'DECLINE') {
+        handleEndCall();
+      }
+    };
+
+    // BroadcastChannel Listener
+    bChan.onmessage = (event) => {
+      const data = event.data;
+      if (data && data.senderId !== myClientId) {
+        handleIncomingSignal(data.signalType, data.payload || data);
+      }
+    };
+
+    // Supabase DB Session Subscription (fires on new rows inserted with session_id)
+    const unsubSession = subscribeToCallSession(sessionId, (sig) => {
+      if (sig.senderId !== myClientId) {
+        handleIncomingSignal(sig.signalType, sig.payload);
+      }
+    });
+
+    // Caller (Patient) generates initial WebRTC OFFER
+    const createAndSendOffer = async () => {
+      try {
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: callType === 'video'
+        });
+        await pc.setLocalDescription(offer);
+        await sendSignal('OFFER', { sdp: offer });
+      } catch (err) {
+        console.warn('[WebRTC] createOffer error:', err);
+      }
+    };
+
+    if (userRole === 'patient') {
+      createAndSendOffer();
+    }
+
+    // Fallback Polling Interval (vital for 4G/LTE mobile networks in Uganda)
+    const pollInterval = setInterval(async () => {
+      if (!active || isPeerConnectedRef.current || pc.connectionState === 'connected') {
+        return;
+      }
+      try {
+        const signals = await fetchCallSessionSignals(sessionId);
+        for (const sig of signals) {
+          if (sig.senderId !== myClientId) {
+            handleIncomingSignal(sig.signalType, sig.payload);
+          }
+        }
+      } catch (_) {}
+    }, 1500);
 
     return () => {
       active = false;
-      stopRingbackTone();
-      try {
-        if (apiRef.current) {
-          apiRef.current.dispose();
-          apiRef.current = null;
-        }
-      } catch (_) {}
+      clearInterval(pollInterval);
+      try { bChan.close(); } catch (_) {}
+      try { realtimeRoom.leave(); } catch (_) {}
+      unsubSession();
+      try { pc.close(); } catch (_) {}
     };
-  }, [sessionId, callType, clinician.name, memberName, userRole, handleEndCall]);
+  }, [localStream, sessionId, userRole, myClientId, callType, clinician.id, memberName, handleEndCall]);
 
-  // Duration timer when connected
-  useEffect(() => {
-    if (callStatus !== 'connected') return;
-    const interval = setInterval(() => {
-      setDuration((d) => d + 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [callStatus]);
+  // Toggle Mute Microphone
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsMuted(!audioTrack.enabled);
+      }
+    }
+  };
+
+  // Toggle Camera On / Off
+  const toggleCamera = () => {
+    if (localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsCameraOff(!videoTrack.enabled);
+      }
+    }
+  };
+
+  // Flip Camera (Front / Back on Mobile Phones)
+  const flipCamera = async () => {
+    if (!localStreamRef.current) return;
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { facingMode: { exact: nextMode } }
+      });
+
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+
+      if (oldVideoTrack) {
+        oldVideoTrack.stop();
+        localStreamRef.current.removeTrack(oldVideoTrack);
+      }
+
+      localStreamRef.current.addTrack(newVideoTrack);
+      setFacingMode(nextMode);
+
+      // Replace track in PeerConnection senders
+      if (pcRef.current) {
+        const sender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video');
+        if (sender) {
+          sender.replaceTrack(newVideoTrack);
+        }
+      }
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+    } catch (_) {
+      // Fallback without exact constraint if device only has one camera
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: { facingMode: nextMode }
+        });
+        const newTrack = fallbackStream.getVideoTracks()[0];
+        const oldTrack = localStreamRef.current.getVideoTracks()[0];
+        if (oldTrack) oldTrack.stop();
+        localStreamRef.current.removeTrack(oldTrack);
+        localStreamRef.current.addTrack(newTrack);
+        setFacingMode(nextMode);
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStreamRef.current;
+        }
+      } catch (err) {
+        console.warn('Could not flip camera:', err);
+      }
+    }
+  };
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -282,8 +564,11 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[9999] bg-slate-950 flex flex-col overflow-hidden text-white select-none">
-      {/* ── Top Bar: Telehealth Status & Controls ── */}
-      <header className="h-16 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 flex items-center justify-between shrink-0 z-30">
+      {/* Hidden remote audio element to ensure audio output */}
+      <audio ref={remoteAudioRef} autoPlay playsInline />
+
+      {/* ── Top Header Bar ── */}
+      <header className="h-16 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center space-x-3 min-w-0">
           <div className="relative shrink-0">
             <img
@@ -293,14 +578,14 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
             />
             <span
               className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 ${
-                callStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400 animate-ping'
+                isPeerConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400 animate-ping'
               }`}
             />
           </div>
 
           <div className="min-w-0">
             <div className="flex items-center space-x-2">
-              <h2 className="text-sm font-extrabold text-white truncate">{clinician.name}</h2>
+              <h2 className="text-sm font-extrabold text-white truncate">{otherPersonName}</h2>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 border border-teal-500/30 shrink-0">
                 {callType === 'video' ? 'Video Call' : 'Voice Call'}
               </span>
@@ -308,10 +593,10 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
             <p className="text-[11px] text-slate-400 flex items-center space-x-1.5 truncate">
               <ShieldCheck className="w-3 h-3 text-emerald-400 shrink-0" />
               <span>Encrypted VitaNova Telehealth</span>
-              {callStatus === 'connected' && hasRemoteParticipant && (
+              {isPeerConnected && (
                 <>
                   <span>•</span>
-                  <span className="text-emerald-400 font-bold">Both Connected</span>
+                  <span className="text-emerald-400 font-bold">Connected</span>
                 </>
               )}
             </p>
@@ -322,11 +607,11 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
         <div className="hidden sm:flex items-center space-x-2 bg-slate-800/80 px-3.5 py-1.5 rounded-full border border-slate-700">
           <Activity className="w-3.5 h-3.5 text-teal-400 animate-pulse" />
           <span className="font-mono text-xs font-bold text-white tracking-wider">
-            {callStatus === 'connected' ? formatDuration(duration) : 'Connecting...'}
+            {isPeerConnected ? formatDuration(duration) : 'Calling...'}
           </span>
         </div>
 
-        {/* Right Action: Fullscreen & Hangup */}
+        {/* Right Action: Fullscreen */}
         <div className="flex items-center space-x-2">
           <button
             onClick={toggleFullscreen}
@@ -335,70 +620,159 @@ export const VideoCallModal: React.FC<VideoCallModalProps> = ({
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
-
-          <button
-            onClick={() => {
-              if (apiRef.current) {
-                try {
-                  apiRef.current.executeCommand('hangup');
-                } catch (_) {}
-              }
-              handleEndCall();
-            }}
-            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-black text-xs flex items-center space-x-1.5 shadow-lg shadow-rose-600/30 transition-all"
-            title="End Telehealth Call"
-          >
-            <PhoneOff className="w-4 h-4" />
-            <span className="hidden sm:inline">End Call</span>
-          </button>
         </div>
       </header>
 
-      {/* ── Main Call Area ── */}
-      <div className="relative flex-1 w-full h-full bg-slate-950 overflow-hidden">
-        {/* Loading / Connecting Overlay */}
-        {callStatus === 'connecting' && !loadError && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-slate-950">
-            <div className="relative mb-6">
-              <span className="absolute inset-0 rounded-full bg-teal-500/25 animate-ping" />
-              <span className="absolute -inset-4 rounded-full bg-teal-500/15 animate-pulse" />
-              <img
-                src={clinician.avatar || '/ki_ezra_avatar.jpg'}
-                alt={clinician.name}
-                className="relative w-32 h-32 rounded-full object-cover border-4 border-teal-500 shadow-2xl"
-              />
+      {/* ── Main Video Display Area ── */}
+      <div className="relative flex-1 w-full h-full bg-slate-950 overflow-hidden flex items-center justify-center">
+        {/* Permission Error Banner if Camera was Blocked */}
+        {cameraPermissionError && (
+          <div className="absolute top-4 left-4 right-4 z-40 bg-rose-500/20 border border-rose-500/40 text-rose-300 p-3 rounded-2xl flex items-center space-x-2 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{cameraPermissionError}</span>
+          </div>
+        )}
+
+        {/* ── STAGE 1: WHILE RINGING / CONNECTING ── */}
+        {!isPeerConnected ? (
+          <div className="relative w-full h-full flex flex-col items-center justify-center">
+            {/* Local Camera fills the screen so the user IMMEDIATELY SEES THEMSELVES */}
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`absolute inset-0 w-full h-full object-cover ${isCameraOff ? 'hidden' : 'block'}`}
+            />
+
+            {/* If camera is disabled or audio-only, show dark backdrop */}
+            {isCameraOff && (
+              <div className="absolute inset-0 bg-gradient-to-b from-slate-900 to-slate-950" />
+            )}
+
+            {/* Calling Overlay Card */}
+            <div className="relative z-10 flex flex-col items-center justify-center p-6 bg-slate-950/75 backdrop-blur-md rounded-3xl border border-slate-800/80 shadow-2xl max-w-xs mx-4 text-center">
+              <div className="relative mb-5">
+                <span className="absolute inset-0 rounded-full bg-teal-500/30 animate-ping" />
+                <span className="absolute -inset-2 rounded-full bg-teal-500/15 animate-pulse" />
+                <img
+                  src={clinician.avatar || '/ki_ezra_avatar.jpg'}
+                  alt={otherPersonName}
+                  className="relative w-24 h-24 rounded-full object-cover border-4 border-teal-500 shadow-xl"
+                />
+              </div>
+
+              <h3 className="text-lg font-black text-white">{otherPersonName}</h3>
+              <p className="text-xs text-teal-400 font-semibold mt-0.5">{clinician.specialty}</p>
+
+              <div className="flex items-center space-x-2 text-xs text-slate-300 mt-4 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>Ringing secure line...</span>
+              </div>
             </div>
-            <h3 className="text-xl font-black text-white tracking-tight">{clinician.name}</h3>
-            <p className="text-sm font-semibold text-teal-400 mt-1">{clinician.specialty}</p>
-            <p className="text-xs text-slate-400 mt-3 flex items-center space-x-2">
-              <span className="w-2 h-2 rounded-full bg-teal-400 animate-ping inline-block" />
-              <span>Establishing secure connection across devices...</span>
-            </p>
           </div>
-        )}
+        ) : (
+          /* ── STAGE 2: WHEN PEER CONNECTED (Main View + PIP Self-View) ── */
+          <div className="relative w-full h-full">
+            {/* Remote Peer Video (Fullscreen) */}
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className={`w-full h-full object-cover ${isSwapped ? 'hidden' : 'block'}`}
+            />
 
-        {/* Load Error State */}
-        {loadError && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-slate-950 text-center">
-            <AlertCircle className="w-12 h-12 text-rose-500 mb-3" />
-            <h3 className="text-base font-bold text-white">Connection Error</h3>
-            <p className="text-xs text-slate-400 max-w-sm mt-1 mb-4">{loadError}</p>
-            <button
-              onClick={handleEndCall}
-              className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs"
+            {/* Self Video (Fullscreen if Swapped) */}
+            {isSwapped && (
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+            )}
+
+            {/* Floating Picture-In-Picture Thumbnail (Self-View or Swapped Remote) */}
+            <div
+              onClick={() => setIsSwapped(!isSwapped)}
+              className="absolute top-4 right-4 z-20 w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden border-2 border-teal-500/60 shadow-2xl bg-slate-900 cursor-pointer group transition-transform active:scale-95"
+              title="Tap to swap views"
             >
-              Close
-            </button>
+              {isSwapped ? (
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-cover pointer-events-none"
+                />
+              ) : (
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover pointer-events-none"
+                />
+              )}
+              <div className="absolute bottom-1 left-1 bg-black/60 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-bold text-white">
+                {isSwapped ? otherPersonName.split(' ')[0] : 'You'}
+              </div>
+            </div>
           </div>
         )}
-
-        {/* Jitsi Meet Container — Fills the whole screen */}
-        <div
-          ref={containerRef}
-          className="w-full h-full"
-          style={{ visibility: callStatus === 'connected' ? 'visible' : 'hidden' }}
-        />
       </div>
+
+      {/* ── Bottom Controls Bar ── */}
+      <footer className="h-24 bg-slate-950/95 backdrop-blur-md border-t border-slate-800/80 px-4 flex items-center justify-center space-x-4 sm:space-x-6 shrink-0 z-30">
+        {/* Mute Microphone */}
+        <button
+          onClick={toggleMute}
+          className={`w-13 h-13 rounded-2xl flex items-center justify-center shadow-lg transition-all active:scale-90 ${
+            isMuted
+              ? 'bg-rose-500/20 border-2 border-rose-500 text-rose-400'
+              : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'
+          }`}
+          title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+        >
+          {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+        </button>
+
+        {/* Toggle Camera On/Off */}
+        {callType === 'video' && (
+          <button
+            onClick={toggleCamera}
+            className={`w-13 h-13 rounded-2xl flex items-center justify-center shadow-lg transition-all active:scale-90 ${
+              isCameraOff
+                ? 'bg-rose-500/20 border-2 border-rose-500 text-rose-400'
+                : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'
+            }`}
+            title={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
+          >
+            {isCameraOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
+          </button>
+        )}
+
+        {/* Flip Front/Back Camera */}
+        {callType === 'video' && (
+          <button
+            onClick={flipCamera}
+            className="w-13 h-13 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 flex items-center justify-center shadow-lg transition-all active:scale-90"
+            title="Switch Camera (Front/Rear)"
+          >
+            <SwitchCamera className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* End Call Button */}
+        <button
+          onClick={handleEndCall}
+          className="w-16 h-13 rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white flex items-center justify-center shadow-xl shadow-rose-600/40 transition-all"
+          title="End Consultation"
+        >
+          <PhoneOff className="w-6 h-6" />
+        </button>
+      </footer>
     </div>
   );
 };

@@ -753,6 +753,84 @@ export const subscribeToCallSignals = (
   };
 };
 
+/**
+ * Subscribe directly to call signals for a specific session ID (bidirectional room signaling).
+ * Both caller and callee subscribe to this with the same sessionId.
+ */
+export const subscribeToCallSession = (
+  sessionId: string,
+  onSignal: (signal: CallSignalEvent) => void
+): (() => void) => {
+  const channel = supabase
+    .channel(`call_session_${sessionId.replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'call_signals',
+        filter: `session_id=eq.${sessionId}`
+      },
+      (payload) => {
+        const row = payload.new as Record<string, any>;
+        const p = (row.payload as CallSignalPayload) || {};
+        onSignal({
+          signalType: row.signal_type,
+          fromRole: row.from_role || p.fromRole || 'patient',
+          callerName: row.caller_name,
+          callType: (row.call_type as 'video' | 'audio') || 'video',
+          sessionId: row.session_id || p.sessionId,
+          senderId: p.senderId,
+          payload: p
+        });
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+};
+
+/**
+ * Fetch all call signals for a session, optionally after a cutoff time.
+ * Fallback polling ensures mobile networks on 4G/LTE never miss OFFER, ANSWER, or ICE signals.
+ */
+export const fetchCallSessionSignals = async (
+  sessionId: string,
+  sinceTimestamp?: string
+): Promise<CallSignalEvent[]> => {
+  try {
+    let query = supabase
+      .from('call_signals')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true });
+
+    if (sinceTimestamp) {
+      query = query.gt('created_at', sinceTimestamp);
+    }
+
+    const { data, error } = await query;
+    if (error || !data) return [];
+
+    return data.map((row) => {
+      const p = (row.payload as CallSignalPayload) || {};
+      return {
+        signalType: row.signal_type,
+        fromRole: row.from_role || p.fromRole || 'patient',
+        callerName: row.caller_name,
+        callType: (row.call_type as 'video' | 'audio') || 'video',
+        sessionId: row.session_id || p.sessionId,
+        senderId: p.senderId,
+        payload: p
+      };
+    });
+  } catch (_) {
+    return [];
+  }
+};
+
 /** Clean up stale call signals older than 10 minutes */
 export const cleanupStaleCallSignals = async () => {
   const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
