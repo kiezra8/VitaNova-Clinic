@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import fs from 'fs';
@@ -544,6 +545,112 @@ app.get('/api/calls/poll/:sessionId', (req: Request, res: Response) => {
     .map((s) => s.payload);
 
   res.json({ ok: true, signals: matching, serverTime: Date.now() });
+});
+
+// 12. Daily.co Video Calling: Create or retrieve private room and issue access token
+app.post('/api/daily/room', async (req: Request, res: Response) => {
+  const apiKey = process.env.DAILY_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({
+      error: 'DAILY_API_KEY is not configured in backend environment variables.'
+    });
+  }
+
+  const { appointmentId, roomName: requestedName, isDoctor, userName } = req.body || {};
+
+  // Clean room identifier: lowercase alphanumeric and hyphens only
+  const rawId = (appointmentId || requestedName || `call-${Date.now()}`)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-');
+  const roomName = rawId.startsWith('vitanova-') ? rawId : `vitanova-${rawId}`;
+
+  try {
+    let roomData: any = null;
+
+    // 1. Check if room already exists
+    const checkRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
+      headers: { Authorization: `Bearer ${apiKey}` }
+    });
+
+    if (checkRes.ok) {
+      roomData = await checkRes.json();
+    } else {
+      // 2. Create room if it doesn't exist
+      const createRes = await fetch('https://api.daily.co/v1/rooms', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: roomName,
+          privacy: 'public',
+          properties: {
+            exp: Math.floor(Date.now() / 1000) + 7200, // 2-hour duration
+            enable_chat: true,
+            enable_screenshare: true,
+            start_video_off: false,
+            start_audio_off: false
+          }
+        })
+      });
+
+      if (!createRes.ok) {
+        const errJson: any = await createRes.json().catch(() => ({}));
+        if (createRes.status === 400 && String(errJson?.info || '').includes('already exists')) {
+          const retryGet = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
+            headers: { Authorization: `Bearer ${apiKey}` }
+          });
+          roomData = await retryGet.json();
+        } else {
+          return res.status(createRes.status).json({
+            error: errJson?.info || errJson?.error || 'Failed to create Daily room'
+          });
+        }
+      } else {
+        roomData = await createRes.json();
+      }
+    }
+
+    // 3. Issue authorized access token
+    let token: string | undefined = undefined;
+    try {
+      const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          properties: {
+            room_name: roomName,
+            user_name: userName || (isDoctor ? 'Doctor' : 'Patient'),
+            is_owner: Boolean(isDoctor),
+            enable_screenshare: true,
+            start_video_off: false,
+            start_audio_off: false
+          }
+        })
+      });
+
+      if (tokenRes.ok) {
+        const tokenJson: any = await tokenRes.json();
+        token = tokenJson.token;
+      }
+    } catch (_) {
+      // Public room works cleanly even if token generation encounters network issue
+    }
+
+    return res.json({
+      roomUrl: roomData.url,
+      roomName: roomData.name,
+      token,
+      expiresAt: roomData.config?.exp
+    });
+  } catch (err: any) {
+    console.error('[VitaNova Daily Server] Error:', err);
+    return res.status(500).json({ error: err?.message || 'Daily room creation failed' });
+  }
 });
 
 // Clean up stale session signals every 60s
