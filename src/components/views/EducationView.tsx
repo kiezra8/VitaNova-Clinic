@@ -36,6 +36,7 @@ interface EducationViewProps {
   articles?: HealthEducationArticle[];
   onToggleDownload?: (articleId: string) => Promise<void>;
   onConsultDoctor?: (doctorName: string) => void;
+  isAdmin?: boolean;
 }
 
 // ── CATEGORY THEME DEFINITIONS ────────────────────────────────────────────
@@ -206,7 +207,7 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
       {/* ── REAL VIDEO PLAYER (PLAYS USER GALLERY VIDEO WITH NATIVE AUDIO) ── */}
       <video
         ref={videoRef}
-        src={resolvedSrc || video.videoUrl || '/genesis_video.mp4'}
+        src={resolvedSrc || video.videoUrl || ''}
         playsInline
         autoPlay
         muted={isMuted}
@@ -376,7 +377,8 @@ const FullscreenVideoPlayer: React.FC<FullscreenVideoPlayerProps> = ({
 export const EducationView: React.FC<EducationViewProps> = ({
   articles,
   onToggleDownload,
-  onConsultDoctor
+  onConsultDoctor,
+  isAdmin = false
 }) => {
   const [activeVideo, setActiveVideo] = useState<DiseaseVideoItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -686,7 +688,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Clinic-posted health education videos — uploaded directly by VitaNova staff
+                Clinic-posted health education videos — tap any to watch
               </p>
             </div>
           </div>
@@ -713,7 +715,8 @@ export const EducationView: React.FC<EducationViewProps> = ({
               )}
             </div>
 
-            {/* Post Video from Gallery Button */}
+            {/* Post Video from Gallery Button — Admin Only */}
+            {isAdmin && (
             <button
               onClick={() => setShowUploadModal(true)}
               className="flex items-center justify-center space-x-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-teal-500 to-emerald-400 hover:from-teal-400 hover:to-emerald-300 text-slate-950 text-xs font-black shadow-lg shadow-teal-500/20 transition-all active:scale-95 shrink-0"
@@ -721,6 +724,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
               <Upload className="w-4 h-4" />
               <span>Post Video from Gallery</span>
             </button>
+            )}
           </div>
         </div>
 
@@ -771,14 +775,14 @@ export const EducationView: React.FC<EducationViewProps> = ({
               >
                 Clear Filters
               </button>
-            ) : (
+            ) : isAdmin ? (
               <button
                 onClick={() => setShowUploadModal(true)}
                 className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-black shadow-md shadow-teal-500/20 transition-all"
               >
                 Post First Video
               </button>
-            )}
+            ) : null}
           </div>
         )}
 
@@ -803,7 +807,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   style={{ background: `hsl(${theme.hue}, 40%, 6%)` }}
                 >
                   <img
-                    src={vid.videoThumbnail || '/genesis_thumb.jpg'}
+                    src={vid.videoThumbnail || ''}
                     alt={vid.diseaseName}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-85"
                     loading="lazy"

@@ -416,7 +416,13 @@ export const App: React.FC = () => {
   }, [currentPatientId]);
   const vitals = useLiveQuery(() => db.vitals.orderBy('timestamp').reverse().toArray()) || [];
   const medicalRecords = useLiveQuery(() => db.medicalRecords.orderBy('timestamp').reverse().toArray()) || [];
-  const carePlan = useLiveQuery(() => db.carePlans.get('cp_htn_001'));
+  const carePlan = useLiveQuery(async () => {
+    if (patient?.id) {
+      const pPlan = await db.carePlans.where('patientId').equals(patient.id).first();
+      if (pPlan) return pPlan;
+    }
+    return await db.carePlans.toCollection().first();
+  }, [patient?.id]);
   const homeVisits = useLiveQuery(() => db.homeVisits.toArray()) || [];
   const educationArticles = useLiveQuery(() => db.healthEducation.toArray()) || [];
   const familyMembers = useLiveQuery(() => db.familyMembers.toArray()) || [];
@@ -985,15 +991,11 @@ export const App: React.FC = () => {
   const activePatient = patient || guestPatient;
 
   useEffect(() => {
-    if (activeTab === 'home') {
-      document.body.style.backgroundColor = '#ffffff';
-    } else {
-      document.body.style.backgroundColor = '#090e17';
-    }
-  }, [activeTab]);
+    document.body.style.backgroundColor = '#ffffff';
+  }, []);
 
   return (
-    <div className={`min-h-screen ${activeTab === 'home' ? 'bg-white text-slate-900' : 'bg-slate-950'} flex flex-col selection:bg-teal-500 selection:text-white`}>
+    <div className="min-h-screen bg-white text-slate-900 flex flex-col selection:bg-teal-500 selection:text-white">
       {/* Header */}
       <Header
         currentRole={currentRole}
@@ -1084,6 +1086,14 @@ export const App: React.FC = () => {
             records={medicalRecords}
             patient={activePatient}
             onAddRecord={handleAddRecord}
+            isClinicianView={isDoctorLoggedIn || currentRole === 'doctor' || currentRole === 'nurse'}
+            isAdmin={isAdmin}
+            carePlan={carePlan}
+            onUpdateDemographics={async (updated) => {
+              if (activePatient?.id) {
+                await db.patients.update(activePatient.id, updated);
+              }
+            }}
           />
         )}
 
@@ -1118,6 +1128,10 @@ export const App: React.FC = () => {
             onCompleteVisit={handleCompleteVisit}
             networkState={networkState}
             clinicians={clinicians}
+            onOpenAdminChat={() => {
+              const adminDoctor = clinicians.find((c) => c.id === 'doc_israel') || DEFAULT_CLINICIANS[0];
+              handleOpenDirectChat(adminDoctor);
+            }}
           />
         )}
 
@@ -1153,6 +1167,7 @@ export const App: React.FC = () => {
             onConsultDoctor={(_docName) => {
               setActiveTab('consultation');
             }}
+            isAdmin={isAdmin}
           />
         )}
 

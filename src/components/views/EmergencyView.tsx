@@ -69,7 +69,7 @@ export const EmergencyView: React.FC<EmergencyViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 bg-white min-h-screen text-slate-900">
       {/* Critical Emergency Banner */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-red-950/70 via-slate-900 to-slate-900 border-2 border-red-500/40 space-y-4 shadow-xl shadow-red-950/20">
         <div className="flex items-center space-x-3">

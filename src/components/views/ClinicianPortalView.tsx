@@ -73,7 +73,7 @@ export const ClinicianPortalView: React.FC<ClinicianPortalViewProps> = ({
       : 'Dr. Brian Kato (PT Physiotherapist)';
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 bg-white min-h-screen text-slate-900">
       {/* Clinician Header */}
       <div className="bg-gradient-to-r from-teal-950/70 via-slate-900 to-slate-900 p-6 rounded-3xl border border-teal-500/30">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

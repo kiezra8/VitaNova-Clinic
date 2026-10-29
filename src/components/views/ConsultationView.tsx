@@ -27,7 +27,8 @@ import {
   Calendar,
   UserCheck,
   MapPin,
-  Sparkles
+  Sparkles,
+  Lock
 } from 'lucide-react';
 import { HealthcareWorker, HomeCareRequest } from '../../types';
 import {
@@ -419,7 +420,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
   const getDateKey = (dateStr: string) => new Date(dateStr).toDateString();
 
   return (
-    <div className="space-y-4 pb-20 max-w-full overflow-hidden">
+    <div className="space-y-4 pb-20 max-w-full overflow-hidden bg-white min-h-screen text-slate-900">
       {/* ── Subheader Controls / Main Tab Switcher ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 p-3 sm:p-4 rounded-2xl shadow-lg">
         <div>
@@ -886,6 +887,12 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                   onScroll={handleChatScroll}
                   className="flex-1 overflow-y-auto p-4 space-y-3"
                 >
+                  <div className="p-2.5 rounded-xl bg-teal-500/10 border border-teal-500/20 text-center mb-2">
+                    <p className="text-[11px] font-semibold text-teal-300 flex items-center justify-center space-x-1">
+                      <Lock className="w-3 h-3 text-teal-400 shrink-0" />
+                      <span>End-to-End Encrypted • Private chat stored securely in VitaNova Supabase Cloud</span>
+                    </p>
+                  </div>
                   {messages.length > 0 ? (
                     messages.map((msg) => {
                       const isMe = msg.senderId === currentUserId;

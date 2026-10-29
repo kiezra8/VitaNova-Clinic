@@ -75,7 +75,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: 'vitals', label: 'Vitals & Charts', desc: 'Blood pressure, glucose & pulse logs', icon: Activity },
     { id: 'records', label: 'Medical Records', desc: 'Clinical notes & prescriptions', icon: FileText },
     { id: 'watch', label: 'CareWatch', desc: 'Wearable health sensor sync', icon: Watch },
-    { id: 'education', label: 'Health Talks', desc: 'Doctor video lectures & medical guides', icon: BookOpen },
+    { id: 'education', label: 'Health Videos', desc: 'Doctor video lectures & medical guides', icon: BookOpen },
     { id: 'family', label: 'My Family', desc: 'Manage household dependants', icon: Users },
     { id: 'fitness', label: 'Fitness Hub', desc: 'Workouts, BMI & weight tracking', icon: Zap },
     { id: 'whatsapp', label: 'WhatsApp Reminders', desc: 'Direct medicine & follow-up alerts', icon: MessageSquare },
@@ -209,7 +209,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               }`}
             >
               <BookOpen className="w-3.5 h-3.5 text-teal-400" />
-              <span>Video Health Talks</span>
+              <span>Health Videos</span>
             </button>
 
             <button
@@ -251,156 +251,6 @@ export const Navigation: React.FC<NavigationProps> = ({
         </div>
       </nav>
 
-      {/* ── MOBILE HORIZONTAL SCROLLABLE CHIP BAR (Under Header on Phones) ── */}
-      <div className="md:hidden bg-slate-900/90 backdrop-blur-sm border-b border-slate-800 sticky top-16 z-30 px-2 py-1.5 overflow-x-auto flex space-x-1.5 scrollbar-none">
-        {/* Admin Quick Chip — Strictly visible ONLY to authenticated admin */}
-        {isAdmin && (
-          <button
-            onClick={() => onSelectTab('admin')}
-            className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center space-x-1 border transition-all ${
-              activeTab === 'admin'
-                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
-                : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-            }`}
-          >
-            <Shield className="w-3 h-3 text-amber-400" />
-            <span>Admin</span>
-          </button>
-        )}
-
-        <button
-          onClick={() => onSelectTab('home')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'home'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <Home className="w-3 h-3" />
-          <span>Home</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('consultation')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'consultation'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <UserCheck className="w-3 h-3" />
-          <span>Care</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('homecare')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'homecare'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <HeartPulse className="w-3 h-3" />
-          <span>Home Care</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('chronic')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'chronic'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <Shield className="w-3 h-3" />
-          <span>Care Plan</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('records')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'records'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <FileText className="w-3 h-3" />
-          <span>Records</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('vitals')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'vitals'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <Activity className="w-3 h-3" />
-          <span>Vitals</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('watch')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'watch'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <Watch className="w-3 h-3" />
-          <span>CareWatch</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('education')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'education'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <BookOpen className="w-3 h-3" />
-          <span>Talks</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('family')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'family'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <Users className="w-3 h-3" />
-          <span>Family</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('fitness')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'fitness'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <Zap className="w-3 h-3" />
-          <span>Fitness</span>
-        </button>
-
-        <button
-          onClick={() => onSelectTab('whatsapp')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1 border transition-all ${
-            activeTab === 'whatsapp'
-              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 font-bold'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700/80'
-          }`}
-        >
-          <MessageSquare className="w-3 h-3" />
-          <span>WhatsApp</span>
-        </button>
-      </div>
-
       {/* ── MOBILE BOTTOM NAVIGATION BAR ── */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 pb-safe">
         <div className="grid grid-cols-5 h-14">
@@ -426,15 +276,15 @@ export const Navigation: React.FC<NavigationProps> = ({
             <span className="text-[10px] font-medium">Care</span>
           </button>
 
-          {/* 3. Home Care */}
+          {/* 3. Health Videos */}
           <button
-            onClick={() => onSelectTab('homecare')}
+            onClick={() => onSelectTab('education')}
             className={`flex flex-col items-center justify-center space-y-0.5 transition-colors ${
-              activeTab === 'homecare' ? 'text-teal-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'education' ? 'text-teal-400 font-bold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <HeartPulse className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Home Care</span>
+            <BookOpen className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Videos</span>
           </button>
 
           {/* 4. ADMIN (For Admin) OR Records (For Regular Users) */}
@@ -504,7 +354,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               {allServicesList.map((svc) => {
                 const Icon = svc.icon;
                 const isSelected = activeTab === svc.id;
-                const isAdmin = svc.id === 'admin';
+                const isAdminItem = svc.id === 'admin';
 
                 return (
                   <button
@@ -512,10 +362,10 @@ export const Navigation: React.FC<NavigationProps> = ({
                     onClick={() => handleTabClick(svc.id)}
                     className={`w-full p-3 rounded-2xl border text-left flex items-center justify-between transition-all ${
                       isSelected
-                        ? isAdmin
+                        ? isAdminItem
                           ? 'bg-amber-500/20 border-amber-400 text-amber-200'
                           : 'bg-teal-500/20 border-teal-400 text-teal-200'
-                        : isAdmin
+                        : isAdminItem
                         ? 'bg-amber-500/10 border-amber-500/30 text-slate-200 hover:bg-amber-500/20'
                         : 'bg-slate-800/60 border-slate-800 hover:border-slate-700 text-slate-200'
                     }`}
@@ -523,7 +373,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                     <div className="flex items-center space-x-3 min-w-0">
                       <div
                         className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                          isAdmin
+                          isAdminItem
                             ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
                             : isSelected
                             ? 'bg-teal-500/20 text-teal-300 border-teal-500/30'

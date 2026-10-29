@@ -289,7 +289,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
   }
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 bg-white min-h-screen text-slate-900">
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-teal-950/80 via-slate-900 to-slate-900 p-6 rounded-3xl border border-teal-500/30 shadow-xl">
         <div>

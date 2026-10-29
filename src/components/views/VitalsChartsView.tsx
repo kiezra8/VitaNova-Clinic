@@ -49,7 +49,7 @@ export const VitalsChartsView: React.FC<VitalsChartsViewProps> = ({
     setIsSubmitting(true);
     try {
       await onAddVital({
-        patientId: 'pat_sarah_001',
+        patientId: (typeof localStorage !== 'undefined' ? localStorage.getItem('vitanova_current_patient_id') : null) || 'pat_current',
         timestamp: new Date().toISOString(),
         systolicBP: systolic ? parseInt(systolic, 10) : undefined,
         diastolicBP: diastolic ? parseInt(diastolic, 10) : undefined,
@@ -60,7 +60,7 @@ export const VitalsChartsView: React.FC<VitalsChartsViewProps> = ({
         weight: weight ? parseFloat(weight) : undefined,
         spO2: spO2 ? parseInt(spO2, 10) : undefined,
         notes: notes.trim() || undefined,
-        recordedBy: 'Sarah Namubiru',
+        recordedBy: (typeof localStorage !== 'undefined' ? localStorage.getItem('vitanova_patient_name') : null) || 'Patient',
         recordedByRole: 'patient',
         deviceId: 'local_device'
       });
@@ -225,12 +225,12 @@ export const VitalsChartsView: React.FC<VitalsChartsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 bg-white min-h-screen text-slate-900">
       {/* Header & Record Button */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Vitals & Health Overview</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Vitals & Health Overview</h1>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20">
               Offline IndexedDB
             </span>

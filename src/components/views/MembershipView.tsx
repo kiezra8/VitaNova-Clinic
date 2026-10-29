@@ -110,11 +110,11 @@ export const MembershipView: React.FC<MembershipViewProps> = ({
   ];
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 bg-white min-h-screen text-slate-900">
       {/* Header */}
       <div>
         <div className="flex items-center space-x-2">
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">My Health Plan (Membership)</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">My Health Plan (Membership)</h1>
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20">
             Prepaid Healthcare Services
           </span>
