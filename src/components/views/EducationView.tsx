@@ -63,6 +63,69 @@ function getTheme(category: string) {
   return CATEGORY_THEMES[category] || { primary: '#2dd4bf', accent: '#0d9488', glow: 'rgba(45,212,191,0.5)', hue: 174 };
 }
 
+/**
+ * Automatically capture a high-quality frame from a video file or blob to use as its thumbnail.
+ */
+function generateThumbnailFromVideo(fileOrBlob: File | Blob): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const video = document.createElement('video');
+      video.preload = 'auto';
+      video.muted = true;
+      video.playsInline = true;
+      const objectUrl = URL.createObjectURL(fileOrBlob);
+      video.src = objectUrl;
+
+      let resolved = false;
+      const cleanUp = () => {
+        if (!resolved) {
+          resolved = true;
+          try {
+            URL.revokeObjectURL(objectUrl);
+          } catch (_) {}
+        }
+      };
+
+      video.onloadedmetadata = () => {
+        const target = Math.min(1.0, Math.max(0.1, (video.duration || 1) * 0.1));
+        video.currentTime = target;
+      };
+
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 360;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            cleanUp();
+            resolve(dataUrl);
+            return;
+          }
+        } catch (e) {
+          console.warn('[VitaNova] Canvas thumbnail extraction error:', e);
+        }
+        cleanUp();
+        resolve('');
+      };
+
+      video.onerror = () => {
+        cleanUp();
+        resolve('');
+      };
+
+      setTimeout(() => {
+        cleanUp();
+        resolve('');
+      }, 4000);
+    } catch (_) {
+      resolve('');
+    }
+  });
+}
+
 // ── CLEAN NATIVE FULLSCREEN VIDEO PLAYER (NO AI SYNTHESIS, NO OVERLAYS) ────
 interface FullscreenVideoPlayerProps {
   video: DiseaseVideoItem;
@@ -388,7 +451,13 @@ export const EducationView: React.FC<EducationViewProps> = ({
   const [galleryVideos, setGalleryVideos] = useState<DiseaseVideoItem[]>(() => {
     try {
       const saved = localStorage.getItem('vitanova_gallery_videos');
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed: DiseaseVideoItem[] = JSON.parse(saved);
+      // Strip any old legacy genesis thumbnail references immediately on first render
+      return parsed.map((v) => ({
+        ...v,
+        videoThumbnail: (v.videoThumbnail && !v.videoThumbnail.includes('genesis')) ? v.videoThumbnail : ''
+      }));
     } catch {
       return [];
     }
@@ -409,11 +478,13 @@ export const EducationView: React.FC<EducationViewProps> = ({
         const updated = await Promise.all(
           storedList.map(async (item) => {
             let nextVideoUrl = item.videoUrl;
-            let nextThumb = item.videoThumbnail;
+            let nextThumb = (item.videoThumbnail && !item.videoThumbnail.includes('genesis')) ? item.videoThumbnail : '';
 
+            let rawVideoBlob: any = null;
             try {
               const vBlob = await db.appSettings.get(`video_blob_${item.id}`);
               if (vBlob?.value) {
+                rawVideoBlob = vBlob.value;
                 nextVideoUrl = URL.createObjectURL(vBlob.value);
               }
             } catch (_) {}
@@ -425,6 +496,16 @@ export const EducationView: React.FC<EducationViewProps> = ({
               }
             } catch (_) {}
 
+            // If thumbnail is still empty or was genesis, auto-generate from stored video blob
+            if ((!nextThumb || nextThumb.includes('genesis')) && rawVideoBlob) {
+              try {
+                const autoThumb = await generateThumbnailFromVideo(rawVideoBlob);
+                if (autoThumb) {
+                  nextThumb = autoThumb;
+                }
+              } catch (_) {}
+            }
+
             return {
               ...item,
               videoUrl: nextVideoUrl,
@@ -435,6 +516,9 @@ export const EducationView: React.FC<EducationViewProps> = ({
 
         if (isMounted) {
           setGalleryVideos(updated);
+          try {
+            localStorage.setItem('vitanova_gallery_videos', JSON.stringify(updated));
+          } catch (_) {}
         }
       } catch (e) {
         console.warn('Could not hydrate video blobs from DB:', e);
@@ -507,7 +591,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
   }, [allAvailableVideos, selectedCategory, searchQuery]);
 
   // Handle Video File Selection from Device Gallery
-  const handleSelectVideoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSelectVideoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setVideoFile(file);
@@ -518,6 +602,15 @@ export const EducationView: React.FC<EducationViewProps> = ({
         const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
         setPostTitle(cleanName);
         setPostDisease(cleanName);
+      }
+      // Automatically capture frame from the selected video as thumbnail
+      try {
+        const autoThumb = await generateThumbnailFromVideo(file);
+        if (autoThumb) {
+          setThumbnailPreviewUrl(autoThumb);
+        }
+      } catch (err) {
+        console.warn('Could not auto-generate thumbnail:', err);
       }
     }
   };
@@ -547,6 +640,13 @@ export const EducationView: React.FC<EducationViewProps> = ({
     setIsSubmitting(true);
 
     try {
+      let finalThumb = thumbnailPreviewUrl;
+      if (!finalThumb && videoFile) {
+        try {
+          finalThumb = await generateThumbnailFromVideo(videoFile);
+        } catch (_) {}
+      }
+
       const newVideoItem: DiseaseVideoItem = {
         id: `gallery_vid_${Date.now()}`,
         title: postTitle.trim(),
@@ -561,7 +661,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
         speakerName: postSpeaker.trim() || 'VitaNova Clinician',
         speakerRole: postSpeakerRole.trim() || 'Healthcare Staff',
         speakerAvatar: '/ki_ezra_avatar.jpg',
-        videoThumbnail: thumbnailPreviewUrl || '/genesis_thumb.jpg',
+        videoThumbnail: finalThumb || '',
         videoUrl: videoPreviewUrl,
         audioUrl: '',
         levelOfCare: 'Health Centre III to National Referral',
@@ -806,12 +906,26 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   className="relative aspect-video w-full overflow-hidden bg-slate-950"
                   style={{ background: `hsl(${theme.hue}, 40%, 6%)` }}
                 >
-                  <img
-                    src={vid.videoThumbnail || ''}
-                    alt={vid.diseaseName}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-85"
-                    loading="lazy"
-                  />
+                  {vid.videoThumbnail && !vid.videoThumbnail.includes('genesis') ? (
+                    <img
+                      src={vid.videoThumbnail}
+                      alt={vid.diseaseName}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90"
+                      loading="lazy"
+                    />
+                  ) : vid.videoUrl ? (
+                    <video
+                      src={vid.videoUrl}
+                      preload="metadata"
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 pointer-events-none"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-900 text-teal-400">
+                      <Play className="w-10 h-10 opacity-60" />
+                    </div>
+                  )}
 
                   {/* Elegant Gradient Vignette */}
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
@@ -991,7 +1105,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                       </div>
                       <div className="flex items-center justify-between text-[11px]">
                         <span className="text-emerald-400 font-semibold truncate max-w-xs">
-                          ✓ {videoFile?.name || 'Selected Gallery Video'}
+                          ✓ {videoFile?.name || 'Selected Gallery Video'} • Frame captured
                         </span>
                         <button
                           type="button"
