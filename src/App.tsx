@@ -1009,6 +1009,9 @@ export const App: React.FC = () => {
         }}
         onEmergencyClick={() => setActiveTab('emergency')}
         onNavigateHome={() => setActiveTab('home')}
+        onNavigateAdmin={() => setActiveTab('admin')}
+        onNavigateTab={(tab) => setActiveTab(tab)}
+        activeTab={activeTab}
         lowBandwidth={lowBandwidth}
         onToggleLowBandwidth={() => setLowBandwidth(!lowBandwidth)}
         isDoctorLoggedIn={isDoctorLoggedIn}

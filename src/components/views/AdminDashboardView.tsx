@@ -525,16 +525,16 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
 
       {/* ── MODAL: EDIT DOCTOR PHONE & CONTACT ── */}
       {editingDoctor && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-5 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center">
                   <Phone className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Update Doctor Contact Numbers</h3>
-                  <p className="text-[10px] text-slate-400">{editingDoctor.name}</p>
+                  <h3 className="text-sm font-bold text-white">Edit Staff & Contact Details</h3>
+                  <p className="text-[10px] text-slate-400">{editingDoctor.name} ({editingDoctor.profession})</p>
                 </div>
               </div>
               <button onClick={() => setEditingDoctor(null)} className="text-slate-400 hover:text-white">
@@ -544,14 +544,61 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
 
             <form onSubmit={handleSaveEditDoctor} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Doctor Name</label>
+                <label className="block text-slate-400 font-semibold mb-1">Staff Full Name *</label>
                 <input
                   type="text"
                   required
                   value={docName}
                   onChange={(e) => setDocName(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Profession *</label>
+                  <select
+                    value={docProfession}
+                    onChange={(e) => setDocProfession(e.target.value as any)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  >
+                    <option value="Doctor">Doctor</option>
+                    <option value="Nurse">Nurse</option>
+                    <option value="Midwife">Midwife</option>
+                    <option value="Physiotherapist">Physiotherapist</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Experience (Years)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={docExp}
+                    onChange={(e) => setDocExp(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500 font-medium"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Consultation / Visit Fee (UGX)</label>
+                  <input
+                    type="number"
+                    value={docFee}
+                    onChange={(e) => setDocFee(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Specialty / Field</label>
+                  <input
+                    type="text"
+                    value={docSpecialty}
+                    onChange={(e) => setDocSpecialty(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500 font-medium"
+                  />
+                </div>
               </div>
 
               <div>
@@ -579,7 +626,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Doctor's Registered Email</label>
+                <label className="block text-slate-400 font-semibold mb-1">Registered Email (Clinician Login)</label>
                 <input
                   type="email"
                   value={docEmail}
@@ -589,7 +636,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Doctor Account Password (For Doctor In-App Login)</label>
+                <label className="block text-slate-400 font-semibold mb-1">Account Password (For Telehealth App Login)</label>
                 <input
                   type="password"
                   placeholder="Enter new password"
@@ -597,28 +644,18 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
                   onChange={(e) => setDocPassword(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:ring-1 focus:ring-teal-500"
                 />
-                <p className="text-[10px] text-teal-400 mt-1">Doctor uses their email and this password to log in and receive in-app telehealth calls.</p>
+                <p className="text-[10px] text-teal-400 mt-1">Clinician uses their email and this password to log in and receive in-app telehealth calls.</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Consultation Fee (UGX)</label>
-                  <input
-                    type="number"
-                    value={docFee}
-                    onChange={(e) => setDocFee(Number(e.target.value))}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Specialty</label>
-                  <input
-                    type="text"
-                    value={docSpecialty}
-                    onChange={(e) => setDocSpecialty(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Bio & Clinical Profile</label>
+                <textarea
+                  rows={2}
+                  value={docBio}
+                  onChange={(e) => setDocBio(e.target.value)}
+                  placeholder="Background, qualifications, hospital affiliations..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
               </div>
 
               <div>
@@ -692,8 +729,8 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
 
       {/* ── MODAL: REGISTER NEW DOCTOR ── */}
       {showAddDoctorModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-lg p-6 space-y-4 shadow-2xl my-6">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-lg p-5 sm:p-6 space-y-4 shadow-2xl my-6 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-500 to-emerald-400 flex items-center justify-center text-slate-950 font-black">

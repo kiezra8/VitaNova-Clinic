@@ -9,7 +9,8 @@ import {
   CheckCircle2,
   X,
   MapPin,
-  Sparkles
+  Sparkles,
+  Shield
 } from 'lucide-react';
 import { PatientProfile, VitalRecord, CarePlan, HomeCareRequest, HealthcareWorker } from '../../types';
 import { NavTab } from '../layout/Navigation';
@@ -231,6 +232,36 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
           </button>
         </div>
       )}
+
+      {/* ── Admin & Staff Management Quick Access Banner ── */}
+      <div className="bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-500/30 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-sm">
+        <div className="flex items-center space-x-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 flex items-center justify-center shrink-0 border border-amber-500/40">
+            <Shield className="w-5 h-5 text-amber-600" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center space-x-1.5">
+              <span className="text-xs sm:text-sm font-extrabold text-slate-900 truncate">
+                Admin Staff Console
+              </span>
+              <span className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-800 border border-amber-500/30">
+                Staff Manager
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 truncate">
+              Edit doctors, nurses, midwives, physios & upload gallery photos
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onNavigate('admin')}
+          className="shrink-0 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-bold text-xs shadow-sm flex items-center space-x-1 transition-all"
+        >
+          <span>Edit Staff</span>
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
       {/* ── 1. CAROUSEL ─────────────────────────────────────────────────── */}
       <div
