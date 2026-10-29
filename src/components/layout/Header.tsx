@@ -120,14 +120,18 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const menuSections: { id: NavTab; label: string; desc: string; icon: any; badge?: string; badgeColor?: string }[] = [
-    {
-      id: 'admin',
-      label: 'Admin Staff Console',
-      desc: 'Edit doctors, nurses, midwives, physios & upload gallery photos',
-      icon: Shield,
-      badge: 'Admin Only',
-      badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-    },
+    ...(isAdmin
+      ? [
+          {
+            id: 'admin' as NavTab,
+            label: 'Admin Staff Console',
+            desc: 'Edit doctors, nurses, midwives, physios & upload gallery photos',
+            icon: Shield,
+            badge: 'Admin Only',
+            badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+          }
+        ]
+      : []),
     {
       id: 'home',
       label: 'Home Dashboard',
@@ -238,20 +242,22 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Right Status & Controls Bar */}
             <div className="flex items-center space-x-1 sm:space-x-2">
-              {/* ADMIN BUTTON — Visible on mobile & desktop for instant access */}
-              <button
-                type="button"
-                onClick={handleAdminClick}
-                className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold shadow-sm active:scale-95 transition-all shrink-0 ${
-                  activeTab === 'admin'
-                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-extrabold shadow-amber-500/20'
-                    : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
-                }`}
-                title="Clinic Admin & Staff Management (Edit doctors, nurses, midwives, physios & upload gallery photos)"
-              >
-                <Shield className="w-3.5 h-3.5 text-amber-400" />
-                <span>Admin</span>
-              </button>
+              {/* ADMIN BUTTON — Strictly visible ONLY to authenticated admin (israelezrakisakye@gmail.com) */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleAdminClick}
+                  className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold shadow-sm active:scale-95 transition-all shrink-0 ${
+                    activeTab === 'admin'
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 font-extrabold shadow-amber-500/20'
+                      : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
+                  }`}
+                  title="Clinic Admin & Staff Management (Edit doctors, nurses, midwives, physios & upload gallery photos)"
+                >
+                  <Shield className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Admin</span>
+                </button>
+              )}
 
               {/* Sync & Connectivity Pill */}
               <div

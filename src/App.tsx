@@ -1034,6 +1034,7 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         onSelectTab={(tab) => setActiveTab(tab)}
         pendingSyncCount={syncInfo.pendingCount}
+        isAdmin={isAdmin}
       />
 
       {/* Main Content Area */}
@@ -1064,6 +1065,7 @@ export const App: React.FC = () => {
             lastSyncedTime={syncInfo.lastSyncedTime}
             pendingCount={syncInfo.pendingCount}
             onRequestHomeCare={handleRequestHomeCare}
+            isAdmin={isAdmin}
           />
         )}
 
@@ -1202,6 +1204,13 @@ export const App: React.FC = () => {
             clinicians={clinicians}
             onUpdateClinicians={handleUpdateClinicians}
             onTestCall={(doc) => handleStartCall(doc, 'video')}
+            isAdmin={isAdmin}
+            onOpenAuthModal={() => {
+              setAuthModalRole('doctor');
+              setAuthModalAction('signin');
+              setAuthModalCallPrompt(null);
+              setAuthModalOpen(true);
+            }}
           />
         )}
       </main>

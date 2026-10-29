@@ -40,12 +40,14 @@ interface NavigationProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   pendingSyncCount: number;
+  isAdmin?: boolean;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
   onSelectTab,
-  pendingSyncCount
+  pendingSyncCount,
+  isAdmin = false
 }) => {
   const [isMoreOpen, setIsMoreOpen] = useState<boolean>(false);
 
@@ -55,7 +57,17 @@ export const Navigation: React.FC<NavigationProps> = ({
   };
 
   const allServicesList: { id: NavTab; label: string; desc: string; icon: any; badge?: string }[] = [
-    { id: 'admin', label: 'Admin Staff Console', desc: 'Edit staff details, fees & upload gallery photos', icon: Shield, badge: 'Admin' },
+    ...(isAdmin
+      ? [
+          {
+            id: 'admin' as NavTab,
+            label: 'Admin Staff Console',
+            desc: 'Edit staff details, fees & upload gallery photos',
+            icon: Shield,
+            badge: 'Admin'
+          }
+        ]
+      : []),
     { id: 'home', label: 'Home Dashboard', desc: 'Doctors on call & quick booking', icon: Home },
     { id: 'consultation', label: 'Doctor Care', desc: 'Direct in-app calls & chat with doctors', icon: UserCheck },
     { id: 'homecare', label: 'Home Care', desc: 'Nurses, midwives & physios home visits', icon: HeartPulse },
@@ -77,18 +89,20 @@ export const Navigation: React.FC<NavigationProps> = ({
       <nav className="hidden md:block bg-slate-900/60 border-b border-slate-800/80 sticky top-16 z-30 overflow-x-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-1 py-2 text-xs font-medium">
-            {/* Admin Console Desktop Button */}
-            <button
-              onClick={() => onSelectTab('admin')}
-              className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition-colors whitespace-nowrap ${
-                activeTab === 'admin'
-                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40 font-bold shadow-sm'
-                  : 'text-amber-400 hover:text-amber-300 hover:bg-slate-800 font-semibold'
-              }`}
-            >
-              <Shield className="w-3.5 h-3.5 text-amber-400" />
-              <span>Admin Console</span>
-            </button>
+            {/* Admin Console Desktop Button — Strictly visible ONLY to authenticated admin */}
+            {isAdmin && (
+              <button
+                onClick={() => onSelectTab('admin')}
+                className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition-colors whitespace-nowrap ${
+                  activeTab === 'admin'
+                    ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40 font-bold shadow-sm'
+                    : 'text-amber-400 hover:text-amber-300 hover:bg-slate-800 font-semibold'
+                }`}
+              >
+                <Shield className="w-3.5 h-3.5 text-amber-400" />
+                <span>Admin Console</span>
+              </button>
+            )}
 
             <button
               onClick={() => onSelectTab('home')}
@@ -239,18 +253,20 @@ export const Navigation: React.FC<NavigationProps> = ({
 
       {/* ── MOBILE HORIZONTAL SCROLLABLE CHIP BAR (Under Header on Phones) ── */}
       <div className="md:hidden bg-slate-900/90 backdrop-blur-sm border-b border-slate-800 sticky top-16 z-30 px-2 py-1.5 overflow-x-auto flex space-x-1.5 scrollbar-none">
-        {/* Admin Quick Chip */}
-        <button
-          onClick={() => onSelectTab('admin')}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center space-x-1 border transition-all ${
-            activeTab === 'admin'
-              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
-              : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-          }`}
-        >
-          <Shield className="w-3 h-3 text-amber-400" />
-          <span>Admin</span>
-        </button>
+        {/* Admin Quick Chip — Strictly visible ONLY to authenticated admin */}
+        {isAdmin && (
+          <button
+            onClick={() => onSelectTab('admin')}
+            className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center space-x-1 border transition-all ${
+              activeTab === 'admin'
+                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
+                : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+            }`}
+          >
+            <Shield className="w-3 h-3 text-amber-400" />
+            <span>Admin</span>
+          </button>
+        )}
 
         <button
           onClick={() => onSelectTab('home')}
@@ -421,21 +437,33 @@ export const Navigation: React.FC<NavigationProps> = ({
             <span className="text-[10px] font-medium">Home Care</span>
           </button>
 
-          {/* 4. ADMIN — Golden Shield Tab on Mobile Bottom Bar */}
-          <button
-            onClick={() => onSelectTab('admin')}
-            className={`flex flex-col items-center justify-center space-y-0.5 transition-colors ${
-              activeTab === 'admin' ? 'text-amber-400 font-black' : 'text-amber-500/70 hover:text-amber-300'
-            }`}
-          >
-            <div className="relative">
-              <Shield className="w-5 h-5 text-amber-400" />
-              {activeTab === 'admin' && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-              )}
-            </div>
-            <span className="text-[10px] font-bold text-amber-300">Admin</span>
-          </button>
+          {/* 4. ADMIN (For Admin) OR Records (For Regular Users) */}
+          {isAdmin ? (
+            <button
+              onClick={() => onSelectTab('admin')}
+              className={`flex flex-col items-center justify-center space-y-0.5 transition-colors ${
+                activeTab === 'admin' ? 'text-amber-400 font-black' : 'text-amber-500/70 hover:text-amber-300'
+              }`}
+            >
+              <div className="relative">
+                <Shield className="w-5 h-5 text-amber-400" />
+                {activeTab === 'admin' && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                )}
+              </div>
+              <span className="text-[10px] font-bold text-amber-300">Admin</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => onSelectTab('records')}
+              className={`flex flex-col items-center justify-center space-y-0.5 transition-colors ${
+                activeTab === 'records' ? 'text-teal-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileText className="w-5 h-5" />
+              <span className="text-[10px] font-medium">Records</span>
+            </button>
+          )}
 
           {/* 5. More / All Services Drawer Trigger */}
           <button

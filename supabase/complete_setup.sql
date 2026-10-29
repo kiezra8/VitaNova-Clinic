@@ -550,7 +550,7 @@ INSERT INTO clinicians (
   true,
   true,
   25000,
-  'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+  'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg',
   'Lead Community Outreach Nurse. Passionate about home-based elder care, post-surgical wound healing, and family health education. Certified in gentle sterile wound dressing and diabetic foot prophylaxis.',
   ARRAY['Luganda', 'English'],
   5.0,
@@ -700,7 +700,7 @@ INSERT INTO education_articles (
   'Step-by-step instructions on keeping post-surgical sutures clean and preventing tropical infections.',
   8,
   'Sister Florence Nabatanzi',
-  'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+  'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg',
   true,
   219
 )

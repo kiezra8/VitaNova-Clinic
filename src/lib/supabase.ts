@@ -96,7 +96,10 @@ export const fetchClinicians = async () => {
     verified: c.verified,
     available: c.available,
     feeUGX: c.fee_ugx,
-    avatar: c.avatar_url,
+    avatar:
+      c.id === 'nurse_florence' || c.name?.toLowerCase().includes('nabatanzi')
+        ? (c.avatar_url && !c.avatar_url.includes('unsplash.com/photo-1594824813593') ? c.avatar_url : 'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg')
+        : (c.avatar_url || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80'),
     bio: c.bio,
     languages: c.languages || [],
     rating: parseFloat(c.rating || '5.0'),
@@ -168,6 +171,12 @@ export const upsertClinician = async (
     hospitalAffiliation?: string;
     verified?: boolean;
     available?: boolean;
+    avatarUrl?: string;
+    avatar?: string;
+    rating?: number;
+    reviewCount?: number;
+    password?: string;
+    inAppCallRoom?: string;
   },
   photoFile?: File | null
 ) => {
@@ -175,20 +184,27 @@ export const upsertClinician = async (
 
   // 1. Upload photo to Supabase Storage if a file was provided
   if (photoFile) {
-    const ext = photoFile.name.split('.').pop() || 'jpg';
-    const filePath = `clinicians/${clinicianData.id || 'new_' + Date.now()}.${ext}`;
+    try {
+      const ext = photoFile.name.split('.').pop() || 'jpg';
+      const cleanId = (clinicianData.id || `clinician_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filePath = `clinicians/${cleanId}_${Date.now()}.${ext}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('vitanova-assets')
-      .upload(filePath, photoFile, { upsert: true, contentType: photoFile.type });
-
-    if (uploadError) {
-      console.error('[VitaNova] Photo upload error:', uploadError.message);
-    } else {
-      const { data: urlData } = supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('vitanova-assets')
-        .getPublicUrl(filePath);
-      avatarUrl = urlData.publicUrl;
+        .upload(filePath, photoFile, { upsert: true, contentType: photoFile.type });
+
+      if (uploadError) {
+        console.warn('[VitaNova] Photo storage upload notice:', uploadError.message);
+      } else {
+        const { data: urlData } = supabase.storage
+          .from('vitanova-assets')
+          .getPublicUrl(filePath);
+        if (urlData?.publicUrl) {
+          avatarUrl = urlData.publicUrl;
+        }
+      }
+    } catch (e) {
+      console.warn('[VitaNova] Storage upload caught exception:', e);
     }
   }
 
@@ -203,18 +219,22 @@ export const upsertClinician = async (
     experience_years: clinicianData.experienceYears,
     fee_ugx: clinicianData.feeUGX,
     bio: clinicianData.bio.trim(),
-    languages: clinicianData.languages,
+    languages: clinicianData.languages || ['English', 'Luganda'],
     registration_number: clinicianData.registrationNumber || '',
     education: clinicianData.education || '',
     hospital_affiliation: clinicianData.hospitalAffiliation || '',
     verified: clinicianData.verified !== false, // Default: true
     available: clinicianData.available !== false,
-    rating: 5.0,
-    review_count: 1
+    rating: clinicianData.rating || 5.0,
+    review_count: clinicianData.reviewCount || 1,
+    password: clinicianData.password || '88888888',
+    in_app_call_room: clinicianData.inAppCallRoom || `vitanova-${(clinicianData.id || 'clinician').replace(/_/g, '-')}`,
+    updated_at: new Date().toISOString()
   };
 
-  if (avatarUrl) {
-    row.avatar_url = avatarUrl;
+  const finalAvatar = avatarUrl || clinicianData.avatarUrl || clinicianData.avatar;
+  if (finalAvatar) {
+    row.avatar_url = finalAvatar;
   }
 
   if (clinicianData.id) {
@@ -229,7 +249,7 @@ export const upsertClinician = async (
 
   if (error) {
     console.error('[VitaNova] upsertClinician error:', error.message);
-    return { data: null, error: error.message };
+    return { data: row, error: error.message };
   }
 
   return { data, error: null };

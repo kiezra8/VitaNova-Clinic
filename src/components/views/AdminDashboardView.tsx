@@ -22,10 +22,11 @@ import {
   Stethoscope,
   BadgeCheck,
   Video,
-  Trash2
+  Trash2,
+  Lock
 } from 'lucide-react';
 import { SyncOutboxItem, HealthcareWorker } from '../../types';
-import { signUpDoctor, upsertClinician } from '../../lib/supabase';
+import { signUpDoctor, upsertClinician, deleteClinician } from '../../lib/supabase';
 
 interface AdminDashboardProps {
   outboxItems: SyncOutboxItem[];
@@ -34,6 +35,8 @@ interface AdminDashboardProps {
   clinicians?: HealthcareWorker[];
   onUpdateClinicians?: (clinicians: HealthcareWorker[]) => void;
   onTestCall?: (clinician: HealthcareWorker) => void;
+  isAdmin?: boolean;
+  onOpenAuthModal?: () => void;
 }
 
 export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
@@ -42,7 +45,9 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
   networkState,
   clinicians = [],
   onUpdateClinicians,
-  onTestCall
+  onTestCall,
+  isAdmin = false,
+  onOpenAuthModal
 }) => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'doctors'>('doctors');
@@ -112,6 +117,8 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     e.preventDefault();
     if (!editingDoctor || !onUpdateClinicians) return;
 
+    const targetAvatar = docAvatar.trim() || editingDoctor.avatar;
+
     const updatedList = clinicians.map((c) => {
       if (c.id === editingDoctor.id) {
         return {
@@ -125,7 +132,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
           password: docPassword.trim() || '88888888',
           feeUGX: Number(docFee),
           experienceYears: Number(docExp),
-          avatar: docAvatar.trim() || c.avatar,
+          avatar: targetAvatar,
           bio: docBio.trim() || c.bio,
           inAppCallRoom: `vitanova-${c.id.replace(/_/g, '-')}`
         };
@@ -145,11 +152,20 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
       experienceYears: Number(docExp),
       feeUGX: Number(docFee),
       bio: docBio.trim(),
-      languages: editingDoctor.languages || ['English'],
+      avatar: targetAvatar,
+      avatarUrl: targetAvatar,
+      languages: editingDoctor.languages || ['English', 'Luganda'],
       verified: true,
       available: true,
-      hospitalAffiliation: editingDoctor.hospitalAffiliation
-    }, docAvatarFile).catch((err) => {
+      hospitalAffiliation: editingDoctor.hospitalAffiliation || 'VitaNova Clinic'
+    }, docAvatarFile).then((res) => {
+      if (res?.data?.avatar_url && res.data.avatar_url !== targetAvatar) {
+        const syncedList = updatedList.map((item) =>
+          item.id === editingDoctor.id ? { ...item, avatar: res.data.avatar_url } : item
+        );
+        onUpdateClinicians(syncedList);
+      }
+    }).catch((err) => {
       console.warn('Supabase upsert clinician warning:', err);
     });
 
@@ -160,14 +176,21 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
 
-  const handleDeleteClinician = (id: string, name: string) => {
+  const handleDeleteClinician = async (id: string, name: string) => {
     if (!window.confirm(`Are you sure you want to permanently remove ${name} from VitaNova Clinic staff?`)) {
       return;
     }
     if (!onUpdateClinicians) return;
     const updated = clinicians.filter((c) => c.id !== id);
     onUpdateClinicians(updated);
-    setSaveSuccessMsg(`${name} removed successfully.`);
+
+    try {
+      await deleteClinician(id);
+    } catch (err) {
+      console.warn('Supabase delete clinician notice:', err);
+    }
+
+    setSaveSuccessMsg(`${name} removed successfully from VitaNova Clinic and database.`);
     setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
 
@@ -183,7 +206,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
       specialty: docSpecialty.trim() || 'General Practitioner',
       phone: docPhone.trim() || '+256 772 888 888',
       whatsapp: docWhatsApp.trim() || docPhone.trim() || '+256 772 888 888',
-      email: docEmail.trim() || 'israelerzrakisakye@gmail.com',
+      email: docEmail.trim() || 'israelezrakisakye@gmail.com',
       password: docPassword.trim() || '88888888',
       experienceYears: Number(docExp) || 5,
       verified: true,
@@ -217,11 +240,18 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
       experienceYears: newDoc.experienceYears || 5,
       feeUGX: newDoc.feeUGX || 45000,
       bio: newDoc.bio || '',
-      languages: newDoc.languages || ['English'],
+      avatar: newDoc.avatar,
+      avatarUrl: newDoc.avatar,
+      languages: newDoc.languages || ['English', 'Luganda'],
       verified: true,
       available: true,
       hospitalAffiliation: newDoc.hospitalAffiliation
-    }, docAvatarFile).catch((err) => {
+    }, docAvatarFile).then((res) => {
+      if (res?.data?.avatar_url && res.data.avatar_url !== newDoc.avatar) {
+        const synced = updatedList.map((c) => c.id === newDoc.id ? { ...c, avatar: res.data.avatar_url } : c);
+        onUpdateClinicians(synced);
+      }
+    }).catch((err) => {
       console.warn('Supabase upsert new clinician warning:', err);
     });
 
@@ -232,6 +262,31 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     setSaveSuccessMsg(`New doctor registered & authorized in Supabase for ${newDoc.name} (${newDoc.email})!`);
     setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-md mx-auto my-12 p-6 rounded-3xl bg-slate-900 border border-slate-800 text-center space-y-4 shadow-xl">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 mx-auto flex items-center justify-center">
+          <Lock className="w-7 h-7" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-white">Admin Privileges Required</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Clinic staff management and settings are restricted exclusively to <strong className="text-teal-400 font-mono">israelezrakisakye@gmail.com</strong>.
+          </p>
+        </div>
+        {onOpenAuthModal && (
+          <button
+            type="button"
+            onClick={onOpenAuthModal}
+            className="w-full py-2.5 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs shadow-md shadow-teal-500/20 active:scale-95 transition-all"
+          >
+            Sign In as Admin
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-20">
@@ -245,7 +300,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-300 mt-1">
-            Authenticated Admin: <strong className="text-teal-400 font-mono">israelerzrakisakye@gmail.com</strong> • Doctor Registry & Direct Phone Routing
+            Authenticated Admin: <strong className="text-teal-400 font-mono">israelezrakisakye@gmail.com</strong> • Doctor Registry & Direct Phone Routing
           </p>
         </div>
 
@@ -342,7 +397,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
                 <div className="flex items-center justify-between text-slate-300 border-b border-slate-800 pb-1.5">
                   <span className="text-[11px] text-slate-400">Account Login:</span>
                   <span className="font-mono text-teal-300 font-bold truncate max-w-[170px]">
-                    {doc.email || 'israelerzrakisakye@gmail.com'}
+                    {doc.email || 'israelezrakisakye@gmail.com'}
                   </span>
                 </div>
 

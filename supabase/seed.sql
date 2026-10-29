@@ -25,7 +25,7 @@ VALUES
     'Community Health & Wound Care',
     9,
     true, true, 25000,
-    'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=400&q=80',
+    'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg',
     'Certified community health nurse covering Wakiso and Kampala districts. Expert in post-operative care and chronic wound management.',
     ARRAY['English', 'Luganda', 'Runyankole'],
     4.8, 94
@@ -92,7 +92,7 @@ VALUES
     'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=400&q=80',
     25,
     'Sister Florence Nabatanzi',
-    'https://images.unsplash.com/photo-1594824813593-1b7776510344?auto=format&fit=crop&w=200&q=80'
+    'https://i.pinimg.com/736x/aa/3d/91/aa3d912bc1941855c80362753d11ef2d.jpg'
   ),
   (
     'edu_maternal',
