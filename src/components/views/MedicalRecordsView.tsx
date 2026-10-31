@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   FileText,
   ShieldCheck,
-  Stethoscope,
+  UserCheck,
   FlaskConical,
   Pill,
   Clock,
@@ -24,7 +24,11 @@ import {
   Phone,
   Edit2,
   Save,
-  Target
+  Target,
+  Camera,
+  Upload,
+  Eye,
+  Download
 } from 'lucide-react';
 import { MedicalRecordEntry, PatientProfile, CarePlan } from '../../types';
 
@@ -75,6 +79,17 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
   const [demoEmergencyRel, setDemoEmergencyRel] = useState<string>(patient.emergencyContact?.relationship || 'Family');
   const [isSavingDemographics, setIsSavingDemographics] = useState<boolean>(false);
 
+  // Document Scanner & File Attachments State
+  const [showScanModal, setShowScanModal] = useState<boolean>(false);
+  const [scanTitle, setScanTitle] = useState<string>('');
+  const [scanCategory, setScanCategory] = useState<MedicalRecordEntry['category']>('imaging');
+  const [scanDate, setScanDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [scanFacility, setScanFacility] = useState<string>('');
+  const [scanNotes, setScanNotes] = useState<string>('');
+  const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [viewingAttachmentUrl, setViewingAttachmentUrl] = useState<string | null>(null);
+
   // New Record Form State (Only for Healthcare Team)
   const [category, setCategory] = useState<MedicalRecordEntry['category']>('consultation');
   const [title, setTitle] = useState<string>('');
@@ -105,7 +120,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
 
   const categories = [
     { id: 'all', label: 'All Records', count: categoryCounts.all, icon: Layers },
-    { id: 'consultation', label: 'Doctor Notes', count: categoryCounts.consultation, icon: Stethoscope },
+    { id: 'consultation', label: 'Doctor Notes', count: categoryCounts.consultation, icon: UserCheck },
     { id: 'lab', label: 'Lab Reports', count: categoryCounts.lab, icon: FlaskConical },
     { id: 'medication', label: 'Prescriptions', count: categoryCounts.medication, icon: Pill },
     { id: 'condition', label: 'Diagnoses', count: categoryCounts.condition, icon: ShieldCheck },
@@ -228,8 +243,55 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
     }
   };
 
+  const handleScanFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!scanTitle) {
+        const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+        setScanTitle(cleanName);
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        setScanPreviewUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scanTitle.trim() || !scanPreviewUrl) return;
+    setIsScanning(true);
+    try {
+      await onAddRecord({
+        patientId: patient.id,
+        timestamp: scanDate ? new Date(scanDate).toISOString() : new Date().toISOString(),
+        category: scanCategory,
+        title: scanTitle.trim(),
+        description: scanNotes.trim() || 'Scanned medical document.',
+        doctorName: scanFacility.trim() || 'External Clinic / Self Scan',
+        doctorRole: 'Archived Document',
+        clinicBranch: scanFacility.trim() || 'External Facility',
+        attachments: [scanPreviewUrl],
+        auditTrail: {
+          createdAt: new Date().toISOString(),
+          author: patient.fullName || 'Patient',
+          device: 'vitanova_document_scanner',
+          version: 1
+        }
+      });
+      setShowScanModal(false);
+      setScanTitle('');
+      setScanNotes('');
+      setScanFacility('');
+      setScanPreviewUrl(null);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   const handleCopyNotes = (rec: MedicalRecordEntry) => {
-    const text = `[VitaNova Clinic — Medical Record]\nDate: ${formatUgDateTime(rec.timestamp)}\nCategory: ${rec.category.toUpperCase()}\nTitle: ${rec.title}\nClinician: ${rec.doctorName} (${rec.doctorRole})\nFacility: ${rec.clinicBranch}\n\nClinical Summary:\n${rec.description}`;
+    const text = `[VitaNova — Medical Record]\nDate: ${formatUgDateTime(rec.timestamp)}\nCategory: ${rec.category.toUpperCase()}\nTitle: ${rec.title}\nClinician: ${rec.doctorName} (${rec.doctorRole})\nFacility: ${rec.clinicBranch}\n\nClinical Summary:\n${rec.description}`;
     navigator.clipboard.writeText(text);
     setCopyFeedbackId(rec.id);
     setTimeout(() => setCopyFeedbackId(null), 2500);
@@ -295,7 +357,7 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
           text: 'text-teal-700',
           badge: 'bg-teal-100 text-teal-800 border-teal-200',
           dot: 'bg-teal-500',
-          icon: Stethoscope,
+          icon: UserCheck,
           label: 'Consultation'
         };
     }
@@ -335,6 +397,15 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
             >
               <Edit2 className="w-3.5 h-3.5 text-teal-600" />
               <span>{isEditingDemographics ? 'Close Edit' : 'Edit Demographics'}</span>
+            </button>
+
+            {/* Scan Previous Medical Documents */}
+            <button
+              onClick={() => setShowScanModal(true)}
+              className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>Scan Document</span>
             </button>
 
             {/* Print Summary */}
@@ -651,17 +722,26 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
           <h3 className="text-base font-bold text-slate-800">No Clinical Records Found</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
             {allRecords.length === 0
-              ? 'Your healthcare team has not documented any entries yet. Clinical notes, lab results, and prescriptions will appear here once saved.'
+              ? 'No clinical records documented yet. You can scan previous medical sheets, lab tests, and prescriptions to store them safely here.'
               : 'No entries match your search query.'}
           </p>
-          {(isClinicianView || isAdmin) && (
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
             <button
-              onClick={() => setShowAddModal(true)}
-              className="px-4 py-2 rounded-xl bg-teal-500 text-white font-bold text-xs shadow-sm hover:bg-teal-400"
+              onClick={() => setShowScanModal(true)}
+              className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-sm flex items-center space-x-1.5 transition-all"
             >
-              Add First Clinical Record
+              <Camera className="w-4 h-4" />
+              <span>Scan / Upload Document</span>
             </button>
-          )}
+            {(isClinicianView || isAdmin) && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-200 transition-all"
+              >
+                Add Clinical Entry
+              </button>
+            )}
+          </div>
         </div>
       ) : viewMode === 'timeline' ? (
         <div className="space-y-6">
@@ -727,6 +807,39 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
                       <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap bg-slate-50 p-3 rounded-xl border border-slate-100">
                         {entry.description}
                       </p>
+
+                      {/* Scanned Document Attachment */}
+                      {entry.attachments && entry.attachments.length > 0 && (
+                        <div className="p-3 bg-teal-50/50 rounded-xl border border-teal-100 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-teal-800 flex items-center space-x-1.5">
+                              <Camera className="w-3.5 h-3.5 text-teal-600" />
+                              <span>Scanned Medical Document</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setViewingAttachmentUrl(entry.attachments![0])}
+                              className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center space-x-1"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View Full Size</span>
+                            </button>
+                          </div>
+                          <div
+                            onClick={() => setViewingAttachmentUrl(entry.attachments![0])}
+                            className="w-28 sm:w-36 h-20 sm:h-24 rounded-lg overflow-hidden border border-slate-200 cursor-pointer hover:opacity-90 bg-slate-100 relative group"
+                          >
+                            <img
+                              src={entry.attachments[0]}
+                              alt="Document scan"
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                              <Eye className="w-5 h-5 drop-shadow" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="pt-1 flex items-center justify-between text-[11px] text-slate-400">
                         <span className="flex items-center space-x-1">
@@ -942,6 +1055,206 @@ export const MedicalRecordsView: React.FC<MedicalRecordsViewProps> = ({
               >
                 Print / Save PDF
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 7. SCAN / UPLOAD PREVIOUS MEDICAL DOCUMENT MODAL ── */}
+      {showScanModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-6 space-y-4 shadow-2xl my-6 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center border border-teal-100 shrink-0">
+                  <Camera className="w-5 h-5 text-teal-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Scan Medical Document</h3>
+                  <p className="text-xs text-slate-500">Capture or upload past lab sheets, reports & prescriptions</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowScanModal(false);
+                  setScanPreviewUrl(null);
+                }}
+                className="text-slate-400 hover:text-slate-700 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveScan} className="space-y-4 text-xs text-slate-800">
+              {/* Camera / File Upload Box */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Document Photo or Scan *
+                </label>
+                <label className="border-2 border-dashed border-teal-300 hover:border-teal-500 bg-teal-50/30 rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer transition-all">
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    capture="environment"
+                    onChange={handleScanFile}
+                    className="hidden"
+                  />
+                  {scanPreviewUrl ? (
+                    <div className="space-y-2 text-center w-full">
+                      <div className="relative max-h-48 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 mx-auto">
+                        <img
+                          src={scanPreviewUrl}
+                          alt="Document Preview"
+                          className="max-h-48 w-auto mx-auto object-contain"
+                        />
+                      </div>
+                      <p className="text-[11px] font-bold text-teal-700">Tap to retake / change document</p>
+                    </div>
+                  ) : (
+                    <div className="text-center space-y-1.5 py-3">
+                      <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center mx-auto shadow-sm">
+                        <Camera className="w-6 h-6" />
+                      </div>
+                      <p className="text-xs font-bold text-slate-900">
+                        Take Photo with Camera or Choose File
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        JPEG, PNG, or scanned sheet
+                      </p>
+                    </div>
+                  )}
+                </label>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Document Title *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Previous Blood Test, Discharge Sheet, Ultrasound"
+                  value={scanTitle}
+                  onChange={(e) => setScanTitle(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-medium"
+                />
+              </div>
+
+              {/* Category & Date */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Document Category
+                  </label>
+                  <select
+                    value={scanCategory}
+                    onChange={(e) => setScanCategory(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-medium"
+                  >
+                    <option value="lab">Lab Report</option>
+                    <option value="imaging">Scan / X-Ray / Imaging</option>
+                    <option value="medication">Prescription</option>
+                    <option value="consultation">Doctor Note / Discharge</option>
+                    <option value="condition">Diagnosis Summary</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Document Date
+                  </label>
+                  <input
+                    type="date"
+                    value={scanDate}
+                    onChange={(e) => setScanDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-medium"
+                  />
+                </div>
+              </div>
+
+              {/* Facility / Doctor Origin */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Hospital, Clinic, or Doctor (optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Mulago Hospital, Lancet Labs"
+                  value={scanFacility}
+                  onChange={(e) => setScanFacility(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-medium"
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Notes / Observations (optional)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Any doctor comments or summary on this document..."
+                  value={scanNotes}
+                  onChange={(e) => setScanNotes(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-medium resize-none"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowScanModal(false);
+                    setScanPreviewUrl(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!scanPreviewUrl || !scanTitle.trim() || isScanning}
+                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all active:scale-95 flex items-center space-x-1.5"
+                >
+                  {isScanning ? 'Saving...' : 'Save Document'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── 8. VIEW SCANNED DOCUMENT MODAL ── */}
+      {viewingAttachmentUrl && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-hidden flex flex-col shadow-2xl border border-slate-200">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <span className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                <Camera className="w-4 h-4 text-teal-600" />
+                <span>Scanned Medical Document</span>
+              </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold"
+                >
+                  Print
+                </button>
+                <button
+                  onClick={() => setViewingAttachmentUrl(null)}
+                  className="p-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 overflow-auto max-h-[78vh] flex items-center justify-center bg-slate-100">
+              <img
+                src={viewingAttachmentUrl}
+                alt="Full Scanned Document"
+                className="max-h-full max-w-full rounded-xl object-contain shadow-lg"
+              />
             </div>
           </div>
         </div>

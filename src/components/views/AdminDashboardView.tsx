@@ -19,7 +19,7 @@ import {
   Edit2,
   Save,
   X,
-  Stethoscope,
+  UserPlus,
   BadgeCheck,
   Video,
   Trash2,
@@ -789,7 +789,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-500 to-emerald-400 flex items-center justify-center text-slate-950 font-black">
-                  <Stethoscope className="w-4 h-4" />
+                  <UserPlus className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white">Register New Doctor</h3>

@@ -7,7 +7,6 @@ import {
   Zap,
   PhoneCall,
   User,
-  Stethoscope,
   LogOut,
   Shield,
   Sparkles,
@@ -142,7 +141,7 @@ export const Header: React.FC<HeaderProps> = ({
       id: 'consultation',
       label: 'Doctor Care & Telehealth',
       desc: 'Video call, audio call & in-app direct chat',
-      icon: Stethoscope
+      icon: Activity
     },
     {
       id: 'homecare',
@@ -200,8 +199,8 @@ export const Header: React.FC<HeaderProps> = ({
     },
     {
       id: 'landing',
-      label: 'Clinic Public Website',
-      desc: 'Clinic overview, branch locations & services',
+      label: 'Public Website',
+      desc: 'Overview, branch locations & services',
       icon: Building2
     },
     {
@@ -232,9 +231,6 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="font-extrabold text-base sm:text-lg text-white tracking-tight">
                     VitaNova
                   </span>
-                  <span className="text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                    Clinic
-                  </span>
                 </div>
                 <p className="text-[10px] text-slate-400 hidden xs:block">Healthcare for You & Family</p>
               </div>
@@ -252,7 +248,7 @@ export const Header: React.FC<HeaderProps> = ({
                       ? 'bg-amber-500 text-slate-950 border-amber-400 font-extrabold shadow-amber-500/20'
                       : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
                   }`}
-                  title="Clinic Admin & Staff Management (Edit doctors, nurses, midwives, physios & upload gallery photos)"
+                  title="Staff Management"
                 >
                   <Shield className="w-3.5 h-3.5 text-amber-400" />
                   <span>Admin</span>
@@ -264,8 +260,8 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={handleManualSync}
                 title={
                   networkState === 'offline'
-                    ? 'App is working offline. Changes saved locally will sync when internet returns.'
-                    : `Tap to sync. Last: ${
+                    ? 'Offline. Changes saved locally will sync when online.'
+                    : `Last sync: ${
                         syncState.lastSyncedTime
                           ? new Date(syncState.lastSyncedTime).toLocaleTimeString([], {
                               hour: '2-digit',
@@ -303,7 +299,6 @@ export const Header: React.FC<HeaderProps> = ({
                   <>
                     <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 shrink-0"></span>
                     <span className="hidden sm:inline">Connected</span>
-                    <span className="sm:hidden">Online</span>
                   </>
                 )}
               </div>
@@ -365,24 +360,13 @@ export const Header: React.FC<HeaderProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenAuthModal('doctor', 'signin')}
-                    className="flex items-center space-x-1 px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 transition-colors shrink-0"
-                    title="Clinician / Doctor Portal Login"
+                    className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 transition-colors shrink-0"
+                    title="Doctor Login"
                   >
-                    <Stethoscope className="w-3 h-3 text-teal-400" />
-                    <span className="hidden xs:inline">Doctors</span>
+                    <span>Doctors</span>
                   </button>
                 </div>
               )}
-
-              {/* Emergency One-Touch Call 999 */}
-              <button
-                type="button"
-                onClick={onEmergencyClick}
-                className="flex items-center space-x-1 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-600/30 transition-transform active:scale-95 shrink-0"
-              >
-                <PhoneCall className="w-3.5 h-3.5" />
-                <span>999</span>
-              </button>
 
               {/* Mobile All-Services Menu Hamburger Button */}
               <button

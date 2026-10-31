@@ -5,7 +5,7 @@ import {
   Users,
   Activity,
   CheckCircle2,
-  Stethoscope,
+  ShieldCheck,
   UserCheck
 } from 'lucide-react';
 import { CarePlan } from '../../types';
@@ -22,7 +22,7 @@ export const ChronicCareView: React.FC<ChronicCareViewProps> = ({
   if (!carePlan) {
     return (
       <div className="p-8 text-center bg-white border border-dashed border-slate-200 rounded-3xl space-y-3 my-6 min-h-[50vh] flex flex-col items-center justify-center">
-        <Stethoscope className="w-10 h-10 text-teal-500 mx-auto opacity-70" />
+        <ShieldCheck className="w-10 h-10 text-teal-500 mx-auto opacity-70" />
         <h3 className="text-base font-bold text-slate-900">No Care Plan Issued Yet</h3>
         <p className="text-xs text-slate-500 max-w-sm mx-auto">
           When your consulting Doctor or Nurse issues your personalized care protocol, medications, and clinical goals, it will be visible here. Patients cannot alter their clinical care plan directly.
@@ -65,7 +65,7 @@ export const ChronicCareView: React.FC<ChronicCareViewProps> = ({
       <div className="p-4 rounded-2xl bg-slate-50 border border-teal-200 flex items-center justify-between">
         <div className="flex items-center space-x-3.5">
           <div className="w-11 h-11 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center border border-teal-200 shrink-0">
-            {isNurse ? <UserCheck className="w-6 h-6 text-teal-600" /> : <Stethoscope className="w-6 h-6 text-teal-600" />}
+            {isNurse ? <UserCheck className="w-6 h-6 text-teal-600" /> : <ShieldCheck className="w-6 h-6 text-teal-600" />}
           </div>
           <div>
             <div className="flex items-center space-x-2 flex-wrap gap-y-1">

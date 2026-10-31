@@ -3,7 +3,7 @@ import {
   HeartPulse,
   MapPin,
   PenTool,
-  Stethoscope,
+  UserCheck,
   Baby,
   Activity,
   MessageCircle
@@ -63,7 +63,7 @@ export const HomeCareView: React.FC<HomeCareViewProps> = ({
 
   const categories: { id: 'all' | 'Nurse' | 'Midwife' | 'Physiotherapist'; label: string; icon: React.FC<{ className?: string }>; count: number }[] = [
     { id: 'all', label: 'All Staff', icon: HeartPulse, count: alliedWorkers.length },
-    { id: 'Nurse', label: 'Nurses', icon: Stethoscope, count: nurseCount },
+    { id: 'Nurse', label: 'Nurses', icon: UserCheck, count: nurseCount },
     { id: 'Midwife', label: 'Midwives', icon: Baby, count: midwifeCount },
     { id: 'Physiotherapist', label: 'Physiotherapists', icon: Activity, count: physioCount },
   ];

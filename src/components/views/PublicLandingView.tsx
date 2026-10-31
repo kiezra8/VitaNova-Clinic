@@ -6,7 +6,6 @@ import {
   RefreshCw,
   HeartPulse,
   Users,
-  Stethoscope,
   PhoneCall,
   MessageSquare,
   Clock,

@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import {
   X,
   User,
-  Stethoscope,
+  Shield,
   Lock,
   Mail,
   Phone,
@@ -361,7 +361,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Stethoscope className="w-3.5 h-3.5" />
+            <Shield className="w-3.5 h-3.5" />
             <span>Doctor Portal</span>
           </button>
         </div>

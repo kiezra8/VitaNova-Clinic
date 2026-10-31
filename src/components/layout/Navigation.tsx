@@ -75,11 +75,11 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: 'vitals', label: 'Vitals & Charts', desc: 'Blood pressure, glucose & pulse logs', icon: Activity },
     { id: 'records', label: 'Medical Records', desc: 'Clinical notes & prescriptions', icon: FileText },
     { id: 'watch', label: 'CareWatch', desc: 'Wearable health sensor sync', icon: Watch },
-    { id: 'education', label: 'Health Videos', desc: 'Doctor video lectures & medical guides', icon: BookOpen },
+    { id: 'education', label: 'Health Articles', desc: 'Disease guides & medical articles', icon: BookOpen },
     { id: 'family', label: 'My Family', desc: 'Manage household dependants', icon: Users },
     { id: 'fitness', label: 'Fitness Hub', desc: 'Workouts, BMI & weight tracking', icon: Zap },
     { id: 'whatsapp', label: 'WhatsApp Reminders', desc: 'Direct medicine & follow-up alerts', icon: MessageSquare },
-    { id: 'landing', label: 'Clinic Website', desc: 'Public portal & branches', icon: Building2 },
+    { id: 'landing', label: 'Website', desc: 'Public portal & branches', icon: Building2 },
     { id: 'emergency', label: 'Emergency 999', desc: 'Ambulance dispatch & urgent care', icon: PhoneCall, badge: '999' },
   ];
 
@@ -125,7 +125,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               }`}
             >
               <Building2 className="w-3.5 h-3.5" />
-              <span>Clinic Website</span>
+              <span>Website</span>
             </button>
 
             <button
@@ -338,8 +338,8 @@ export const Navigation: React.FC<NavigationProps> = ({
             {/* Sheet Header */}
             <div className="p-4 border-b border-slate-800 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-extrabold text-white">All Clinic Sections</h3>
-                <p className="text-[10px] text-slate-400">Tap any section to open immediately</p>
+                <h3 className="text-sm font-extrabold text-white">All Sections</h3>
+                <p className="text-[10px] text-slate-400">Tap to open</p>
               </div>
               <button
                 onClick={() => setIsMoreOpen(false)}
