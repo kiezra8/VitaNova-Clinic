@@ -217,7 +217,7 @@ export interface FamilyMember {
 
 export interface MembershipPlan {
   id: string;
-  name: 'Essential' | 'Family' | 'Chronic Care' | 'Premium';
+  name: 'Essential' | 'Family' | 'Chronic Care' | 'Premium' | 'Premium Comprehensive';
   tagline: string;
   priceUGX: number;
   period: 'monthly' | 'annually';

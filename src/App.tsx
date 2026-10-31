@@ -31,6 +31,7 @@ import { ChronicCareView } from './components/views/ChronicCareView';
 import { HealthWatchView } from './components/views/HealthWatchView';
 import { EducationView } from './components/views/EducationView';
 import { FamilyHealthView } from './components/views/FamilyHealthView';
+import { NearbyClinicsView } from './components/views/NearbyClinicsView';
 import { MembershipView } from './components/views/MembershipView';
 import { WhatsAppFollowUpView } from './components/views/WhatsAppFollowUpView';
 import { EmergencyView } from './components/views/EmergencyView';
@@ -1224,11 +1225,14 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* Family Health */}
+        {/* Nearby Clinics & Medical Centers (GPS-based) */}
         {activeTab === 'family' && (
-          <FamilyHealthView
-            members={familyMembers}
-            onAddMember={handleAddFamilyMember}
+          <NearbyClinicsView
+            isAdmin={isAdmin}
+            onOpenAdminChat={(clinicName) => {
+              const adminDoctor = clinicians.find((c) => c.id === 'doc_israel') || DEFAULT_CLINICIANS[0];
+              handleOpenDirectChat(adminDoctor);
+            }}
           />
         )}
 

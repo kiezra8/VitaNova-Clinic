@@ -134,13 +134,6 @@ export const HealthWatchView: React.FC<HealthWatchViewProps> = ({
         </div>
       </div>
 
-      {/* Integration Architecture Disclaimer & SDK Documentation */}
-      <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
-        <h3 className="text-sm font-bold text-white">Clinical Wearables Integration Architecture</h3>
-        <p className="text-xs text-slate-400 leading-relaxed">
-          VitaNova Clinic utilizes a standardized Web Bluetooth API & GATT Service interface (<code className="text-teal-400">0x180D Heart Rate</code> and <code className="text-teal-400">0x1822 Pulse Oximeter</code>). Device readings stream directly into device IndexedDB buffers without requiring internet, and synchronize to the clinician EMR when connectivity is available.
-        </p>
-      </div>
     </div>
   );
 };

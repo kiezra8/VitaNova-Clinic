@@ -1010,7 +1010,7 @@ export const ConsultationView: React.FC<ConsultationViewProps> = ({
                   <div className="p-2.5 rounded-xl bg-teal-500/10 border border-teal-500/20 text-center mb-2">
                     <p className="text-[11px] font-semibold text-teal-300 flex items-center justify-center space-x-1">
                       <Lock className="w-3 h-3 text-teal-400 shrink-0" />
-                      <span>End-to-End Encrypted • Private chat stored securely in VitaNova Supabase Cloud</span>
+                      <span>End-to-End Encrypted • Private Clinical Session</span>
                     </p>
                   </div>
                   {messages.length > 0 ? (

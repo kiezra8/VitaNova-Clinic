@@ -1278,3 +1278,201 @@ const mapDbRowToCallLog = (row: any): CallLog => ({
   endedAt: row.ended_at,
   durationSec: row.duration_sec || 0
 });
+
+// ── NEARBY CLINICS & MEDICAL CENTERS ──────────────────────────────────────────
+
+export interface NearbyClinic {
+  id: string;
+  name: string;
+  address: string;
+  city?: string;
+  latitude: number;
+  longitude: number;
+  imageUrl: string;
+  phone?: string;
+  operatingHours?: string;
+  services?: string[];
+  distanceKm?: number;
+}
+
+export const DEFAULT_NEARBY_CLINICS: NearbyClinic[] = [
+  {
+    id: 'clinic_vitanova_main',
+    name: 'VitaNova Medical Centre',
+    address: 'Plot 14 Lumumba Avenue, Nakasero',
+    city: 'Kampala',
+    latitude: 0.3204,
+    longitude: 32.5788,
+    imageUrl: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=600&q=80',
+    phone: '+256 700 123 456',
+    operatingHours: '24 Hours / 7 Days',
+    services: ['Emergency Care', 'Laboratory', 'Maternity', 'Physiotherapy']
+  },
+  {
+    id: 'clinic_nakasero_hub',
+    name: 'Nakasero Outpatient Clinic',
+    address: 'Akii Bua Road, Nakasero',
+    city: 'Kampala',
+    latitude: 0.3262,
+    longitude: 32.5805,
+    imageUrl: 'https://images.unsplash.com/photo-1586773860418-d37222d8fce3?auto=format&fit=crop&w=600&q=80',
+    phone: '+256 312 531 400',
+    operatingHours: '7:00 AM – 10:00 PM',
+    services: ['Family Medicine', 'Ultrasound', 'Vaccination', 'Pediatrics']
+  },
+  {
+    id: 'clinic_ntinda_care',
+    name: 'Ntinda Community Medical Centre',
+    address: 'Ntinda - Kiwatule Road',
+    city: 'Kampala',
+    latitude: 0.3547,
+    longitude: 32.6186,
+    imageUrl: 'https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=600&q=80',
+    phone: '+256 752 987 654',
+    operatingHours: '8:00 AM – 9:00 PM',
+    services: ['General Consultation', 'Dental', 'Antenatal Care']
+  },
+  {
+    id: 'clinic_entebbe_point',
+    name: 'Entebbe Peninsula Health Center',
+    address: 'Portal Road, Near Entebbe Zoo',
+    city: 'Entebbe',
+    latitude: 0.0592,
+    longitude: 32.4735,
+    imageUrl: 'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=600&q=80',
+    phone: '+256 414 320 024',
+    operatingHours: '24 Hours',
+    services: ['Travel Medicine', 'Emergency', 'Laboratory', 'Pharmacy']
+  },
+  {
+    id: 'clinic_jinja_metro',
+    name: 'Jinja Highway Medical Hub',
+    address: 'Main Street & Bell Avenue',
+    city: 'Jinja',
+    latitude: 0.4244,
+    longitude: 33.2041,
+    imageUrl: 'https://images.unsplash.com/photo-1538108149393-fbbd81895907?auto=format&fit=crop&w=600&q=80',
+    phone: '+256 434 122 550',
+    operatingHours: '8:00 AM – 8:00 PM',
+    services: ['General Outpatient', 'Minor Surgery', 'Maternity']
+  }
+];
+
+/** Fetch all clinics from remote or local storage cache */
+export const fetchNearbyClinics = async (): Promise<NearbyClinic[]> => {
+  let cached: NearbyClinic[] = [];
+  try {
+    const raw = localStorage.getItem('vitanova_nearby_clinics');
+    if (raw) cached = JSON.parse(raw);
+  } catch (_) {}
+
+  try {
+    const { data, error } = await supabase
+      .from('nearby_clinics')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (!error && data && data.length > 0) {
+      const mapped: NearbyClinic[] = data.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        address: d.address || '',
+        city: d.city || '',
+        latitude: parseFloat(d.latitude || '0'),
+        longitude: parseFloat(d.longitude || '0'),
+        imageUrl: d.image_url || 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=600&q=80',
+        phone: d.phone || '',
+        operatingHours: d.operating_hours || 'Open Daily',
+        services: Array.isArray(d.services) ? d.services : (typeof d.services === 'string' ? d.services.split(',').map((s: string) => s.trim()) : [])
+      }));
+      localStorage.setItem('vitanova_nearby_clinics', JSON.stringify(mapped));
+      return mapped;
+    }
+  } catch (_) {}
+
+  if (cached.length > 0) return cached;
+  try {
+    localStorage.setItem('vitanova_nearby_clinics', JSON.stringify(DEFAULT_NEARBY_CLINICS));
+  } catch (_) {}
+  return DEFAULT_NEARBY_CLINICS;
+};
+
+/** Create or update a clinic in remote and local storage (Admin only) */
+export const upsertNearbyClinic = async (
+  clinic: NearbyClinic,
+  imageFile?: File | null
+): Promise<NearbyClinic> => {
+  let photoUrl = clinic.imageUrl;
+
+  if (imageFile) {
+    try {
+      const ext = imageFile.name.split('.').pop() || 'jpg';
+      const path = `clinics/${clinic.id}_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('vitanova-assets')
+        .upload(path, imageFile, { upsert: true });
+
+      if (!upErr) {
+        const { data: pubData } = supabase.storage
+          .from('vitanova-assets')
+          .getPublicUrl(path);
+        if (pubData?.publicUrl) {
+          photoUrl = pubData.publicUrl;
+        }
+      }
+    } catch (_) {}
+  }
+
+  const updatedClinic: NearbyClinic = {
+    ...clinic,
+    imageUrl: photoUrl
+  };
+
+  // Local storage update
+  try {
+    const raw = localStorage.getItem('vitanova_nearby_clinics');
+    const list: NearbyClinic[] = raw ? JSON.parse(raw) : [...DEFAULT_NEARBY_CLINICS];
+    const idx = list.findIndex(c => c.id === updatedClinic.id);
+    if (idx >= 0) {
+      list[idx] = updatedClinic;
+    } else {
+      list.unshift(updatedClinic);
+    }
+    localStorage.setItem('vitanova_nearby_clinics', JSON.stringify(list));
+  } catch (_) {}
+
+  // Supabase update
+  try {
+    await supabase.from('nearby_clinics').upsert({
+      id: updatedClinic.id,
+      name: updatedClinic.name,
+      address: updatedClinic.address,
+      city: updatedClinic.city || '',
+      latitude: updatedClinic.latitude,
+      longitude: updatedClinic.longitude,
+      image_url: updatedClinic.imageUrl,
+      phone: updatedClinic.phone || '',
+      operating_hours: updatedClinic.operatingHours || 'Open Daily',
+      services: updatedClinic.services || [],
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'id' });
+  } catch (_) {}
+
+  return updatedClinic;
+};
+
+/** Delete a clinic from remote and local storage (Admin only) */
+export const deleteNearbyClinic = async (clinicId: string): Promise<void> => {
+  try {
+    const raw = localStorage.getItem('vitanova_nearby_clinics');
+    if (raw) {
+      const list: NearbyClinic[] = JSON.parse(raw);
+      const filtered = list.filter(c => c.id !== clinicId);
+      localStorage.setItem('vitanova_nearby_clinics', JSON.stringify(filtered));
+    }
+  } catch (_) {}
+
+  try {
+    await supabase.from('nearby_clinics').delete().eq('id', clinicId);
+  } catch (_) {}
+};

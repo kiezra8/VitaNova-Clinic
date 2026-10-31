@@ -259,7 +259,7 @@ export const AdminDashboardView: React.FC<AdminDashboardProps> = ({
     onUpdateClinicians(updatedList);
     setShowAddDoctorModal(false);
     setDocAvatarFile(null);
-    setSaveSuccessMsg(`New doctor registered & authorized in Supabase for ${newDoc.name} (${newDoc.email})!`);
+    setSaveSuccessMsg(`New doctor registered & authorized for ${newDoc.name} (${newDoc.email})!`);
     setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
 

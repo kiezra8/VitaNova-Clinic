@@ -75,8 +75,8 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: 'vitals', label: 'Vitals & Charts', desc: 'Blood pressure, glucose & pulse logs', icon: Activity },
     { id: 'records', label: 'Medical Records', desc: 'Clinical notes & prescriptions', icon: FileText },
     { id: 'watch', label: 'CareWatch', desc: 'Wearable health sensor sync', icon: Watch },
-    { id: 'education', label: 'Health Articles', desc: 'Disease guides & medical articles', icon: BookOpen },
-    { id: 'family', label: 'My Family', desc: 'Manage household dependants', icon: Users },
+    { id: 'education', label: 'Articles', desc: 'Medical guides & health articles', icon: BookOpen },
+    { id: 'family', label: 'Nearby Clinics', desc: 'Medical centers & GPS proximity', icon: Building2 },
     { id: 'fitness', label: 'Fitness Hub', desc: 'Workouts, BMI & weight tracking', icon: Zap },
     { id: 'whatsapp', label: 'WhatsApp Reminders', desc: 'Direct medicine & follow-up alerts', icon: MessageSquare },
     { id: 'landing', label: 'Website', desc: 'Public portal & branches', icon: Building2 },
@@ -209,7 +209,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               }`}
             >
               <BookOpen className="w-3.5 h-3.5 text-teal-400" />
-              <span>Health Videos</span>
+              <span>Articles</span>
             </button>
 
             <button
@@ -220,8 +220,8 @@ export const Navigation: React.FC<NavigationProps> = ({
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
             >
-              <Users className="w-3.5 h-3.5" />
-              <span>My Family</span>
+              <Building2 className="w-3.5 h-3.5 text-teal-400" />
+              <span>Nearby Clinics</span>
             </button>
 
             <button
@@ -276,7 +276,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             <span className="text-[10px] font-medium">Care</span>
           </button>
 
-          {/* 3. Health Videos */}
+          {/* 3. Articles */}
           <button
             onClick={() => onSelectTab('education')}
             className={`flex flex-col items-center justify-center space-y-0.5 transition-colors ${
@@ -284,7 +284,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             }`}
           >
             <BookOpen className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Videos</span>
+            <span className="text-[10px] font-medium">Articles</span>
           </button>
 
           {/* 4. ADMIN (For Admin) OR Records (For Regular Users) */}

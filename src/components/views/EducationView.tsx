@@ -18,6 +18,96 @@ import { HealthEducationArticle } from '../../types';
 import { DISEASE_VIDEOS, DiseaseVideoItem } from '../../data/diseaseVideos';
 import { fetchEducationArticles, supabase } from '../../lib/supabase';
 
+const CATEGORY_IMAGES: Record<string, string[]> = {
+  'Infectious Diseases': [
+    'https://images.unsplash.com/photo-1584362917165-526a968579e8?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1579154204601-01588f351e67?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Cardiovascular Diseases': [
+    'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1628348068343-c6a848d2b6dd?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Respiratory Diseases': [
+    'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1530497610245-94d3c16cda28?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Pediatric & Neonatal': [
+    'https://images.unsplash.com/photo-1516627145497-ae6968895b74?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1606206873764-fd15e242df52?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Obstetric & Gynecological': [
+    'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Gastrointestinal & Hepatic': [
+    'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1471864190281-a93a3070b6de?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Endocrine & Metabolic': [
+    'https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Dermatological Conditions': [
+    'https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Central Nervous System': [
+    'https://images.unsplash.com/photo-1559757175-5700dde675bc?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Musculoskeletal & Rheumatology': [
+    'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Eye & Ophthalmic Conditions': [
+    'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Ear, Nose & Throat (ENT)': [
+    'https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Renal & Urological': [
+    'https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Mental Health & Psychiatry': [
+    'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?auto=format&fit=crop&w=600&q=80'
+  ],
+  'Surgical & Emergency': [
+    'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=600&q=80',
+    'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=600&q=80'
+  ]
+};
+
+const DEFAULT_ARTICLE_PHOTOS = [
+  'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=600&q=80'
+];
+
+function getArticleImage(item: DiseaseVideoItem): string {
+  if (item.videoThumbnail && !item.videoThumbnail.includes('genesis_thumb') && !item.videoThumbnail.includes('ki_ezra')) {
+    return item.videoThumbnail;
+  }
+  const categoryPool = CATEGORY_IMAGES[item.category] || DEFAULT_ARTICLE_PHOTOS;
+  let hash = 0;
+  const str = item.id || item.title;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const index = Math.abs(hash) % categoryPool.length;
+  return categoryPool[index];
+}
+
+function getCleanTitle(item: DiseaseVideoItem): string {
+  if (item.diseaseName && item.diseaseName.trim()) return item.diseaseName.trim();
+  const raw = item.title || '';
+  const firstPart = raw.split(':')[0] || raw;
+  return firstPart.replace(/\|.*$/g, '').trim();
+}
+
 interface EducationViewProps {
   articles?: HealthEducationArticle[];
   onToggleDownload?: (articleId: string) => Promise<void>;
@@ -300,8 +390,8 @@ export const EducationView: React.FC<EducationViewProps> = ({
               {/* Card Image */}
               <div className="relative w-full aspect-[16/10] bg-slate-100 overflow-hidden">
                 <img
-                  src={item.videoThumbnail || 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=600&q=80'}
-                  alt={item.title}
+                  src={getArticleImage(item)}
+                  alt={getCleanTitle(item)}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   loading="lazy"
                 />
@@ -312,15 +402,12 @@ export const EducationView: React.FC<EducationViewProps> = ({
                 </div>
               </div>
 
-              {/* Card Content */}
+              {/* Card Content (Clean & without card description) */}
               <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
                 <div>
-                  <h3 className="text-sm sm:text-base font-extrabold text-slate-900 leading-snug group-hover:text-teal-700 transition-colors">
-                    {item.diseaseName || item.title}
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug group-hover:text-teal-700 transition-colors">
+                    {getCleanTitle(item)}
                   </h3>
-                  <p className="text-xs text-slate-600 line-clamp-2 mt-1.5 leading-relaxed">
-                    {item.summary || item.clinicalGuideline?.caseDefinition}
-                  </p>
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
@@ -345,8 +432,8 @@ export const EducationView: React.FC<EducationViewProps> = ({
             {/* Modal Header Cover */}
             <div className="relative w-full h-48 sm:h-56 bg-slate-900 shrink-0">
               <img
-                src={selectedArticle.videoThumbnail || 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=800&q=80'}
-                alt={selectedArticle.title}
+                src={getArticleImage(selectedArticle)}
+                alt={getCleanTitle(selectedArticle)}
                 className="w-full h-full object-cover opacity-85"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
@@ -366,7 +453,7 @@ export const EducationView: React.FC<EducationViewProps> = ({
                   {selectedArticle.category}
                 </span>
                 <h2 className="text-lg sm:text-2xl font-black text-white leading-tight">
-                  {selectedArticle.diseaseName || selectedArticle.title}
+                  {getCleanTitle(selectedArticle)}
                 </h2>
               </div>
             </div>

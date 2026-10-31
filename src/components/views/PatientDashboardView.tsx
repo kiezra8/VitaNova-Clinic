@@ -132,8 +132,8 @@ export const PatientDashboardView: React.FC<DashboardProps> = ({
     },
     {
       id: 'family',
-      title: 'My Family',
-      image: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=400&q=80',
+      title: 'Nearby Clinics',
+      image: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=400&q=80',
       tab: 'family' as NavTab
     },
     {

@@ -175,15 +175,15 @@ export const Header: React.FC<HeaderProps> = ({
     },
     {
       id: 'education',
-      label: 'Video Health Talks',
-      desc: 'Doctor educational lectures & wellness guides',
+      label: 'Articles',
+      desc: 'Disease guides & clinical articles',
       icon: BookOpen
     },
     {
       id: 'family',
-      label: 'Family Health Circle',
-      desc: 'Manage dependants & household members',
-      icon: Users
+      label: 'Nearby Clinics',
+      desc: 'Nearby medical centers & GPS location',
+      icon: Building2
     },
     {
       id: 'fitness',
